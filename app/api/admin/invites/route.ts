@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  inviteCreateErrorResponse,
+  logPaymentInviteCreateError
+} from "@/lib/admin-invite-errors";
 import { verifyAdminRequest } from "@/lib/admin-auth";
 import { sendPaymentInviteEmail } from "@/lib/email";
 import { buildPaymentInviteUrl, buildWhatsappUrl, createPaymentInvite } from "@/lib/payment-invites";
@@ -37,7 +41,24 @@ export async function POST(request: NextRequest) {
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
 
   const parsed = createSchema.safeParse(await request.json());
-  if (!parsed.success) return NextResponse.json({ error: "Datos invalidos" }, { status: 400 });
+  if (!parsed.success) {
+    const invalidDate = parsed.error.issues.some((issue) => issue.path.join(".") === "expiresAt");
+    if (invalidDate) {
+      return NextResponse.json(
+        { error: "La fecha de vencimiento no es válida.", code: "INVITE_INVALID_DATE" },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: "Datos invalidos" }, { status: 400 });
+  }
+
+  const expiresAt = new Date(parsed.data.expiresAt);
+  if (Number.isNaN(expiresAt.getTime())) {
+    return NextResponse.json(
+      { error: "La fecha de vencimiento no es válida.", code: "INVITE_INVALID_DATE" },
+      { status: 400 }
+    );
+  }
 
   try {
     const { invite, token } = await createPaymentInvite({
@@ -50,14 +71,27 @@ export async function POST(request: NextRequest) {
       fullName: parsed.data.fullName,
       email: parsed.data.email,
       whatsapp: parsed.data.whatsapp,
-      expiresAt: new Date(parsed.data.expiresAt),
+      expiresAt,
       approved: parsed.data.approved,
       createdBy: admin.email
     });
     const url = buildPaymentInviteUrl(token);
-    if (parsed.data.sendEmail) await sendPaymentInviteEmail(invite, url);
+    if (parsed.data.sendEmail) {
+      try {
+        await sendPaymentInviteEmail(invite, url);
+      } catch (emailError) {
+        const resendError = {
+          code: "RESEND_ERROR",
+          message: emailError instanceof Error ? emailError.message : "Resend invite email failed"
+        };
+        logPaymentInviteCreateError(resendError);
+        return NextResponse.json(inviteCreateErrorResponse(resendError), { status: 502 });
+      }
+    }
     return NextResponse.json({ invite, url, whatsappUrl: buildWhatsappUrl(invite, url) });
-  } catch {
-    return NextResponse.json({ error: "No se pudo crear la invitacion" }, { status: 500 });
+  } catch (error) {
+    logPaymentInviteCreateError(error);
+    const status = inviteCreateErrorResponse(error).code === "INVITE_MXN_RATE_MISSING" ? 400 : 500;
+    return NextResponse.json(inviteCreateErrorResponse(error), { status });
   }
 }

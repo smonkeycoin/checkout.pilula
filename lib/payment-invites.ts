@@ -11,6 +11,7 @@ import { CANCELLATION_POLICY_VERSION, TERMS_VERSION, termsHash } from "@/config/
 import { getEnv } from "@/lib/env";
 import { calculateInviteAmounts } from "@/lib/money";
 import { canCheckoutInvite } from "@/lib/checkout-guard";
+import { PaymentInviteSupabaseError } from "@/lib/admin-invite-errors";
 import { sanitizeText } from "@/lib/security/text";
 import { createOpaqueToken, hashToken } from "@/lib/security/tokens";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -176,7 +177,7 @@ export async function createPaymentInvite(input: {
     .select("*")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) throw new PaymentInviteSupabaseError(error);
   return { invite: data as PaymentInvite, token };
 }
 
