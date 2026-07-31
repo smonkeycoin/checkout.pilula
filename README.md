@@ -78,6 +78,7 @@ Configurar en `.env.local` y Vercel:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `RESEND_API_KEY`
 - `INVOICE_LINK_SECRET`
+- `PAYMENT_INVITE_OTP_SECRET`
 - `ACCOUNTING_NOTIFICATION_EMAIL` opcional; si está vacío se notifica a `YOANNA_NOTIFICATION_EMAIL`
 
 ## Precios definitivos

@@ -23,6 +23,7 @@ const envSchema = z.object({
   ACCOUNTING_NOTIFICATION_EMAIL: z.string().email().optional().or(z.literal("")).default(""),
   PATIENT_INVITE_TTL_HOURS: z.coerce.number().int().positive().default(168),
   INVOICE_LINK_SECRET: z.string().optional().default(""),
+  PAYMENT_INVITE_OTP_SECRET: z.string().optional().default(""),
   LEGAL_TERMS_VERSION: z.string().default("2026-01"),
   LEGAL_CANCELLATION_POLICY_VERSION: z.string().default("2026-01"),
   LEGAL_APPROVED: z.string().default("false")

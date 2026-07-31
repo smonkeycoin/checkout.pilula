@@ -4,6 +4,7 @@ import { canCheckoutInvite, validateCheckoutPayload } from "@/lib/checkout-guard
 import { getEnv, isLiveStripeKey, isPlaceholder } from "@/lib/env";
 import { sendBankTransferInstructionsEmail } from "@/lib/email";
 import { createOrderFromInvite, markOrderCheckoutOpen } from "@/lib/orders";
+import { isInviteOtpVerified } from "@/lib/payment-invite-otp";
 import { getPaymentInviteByToken } from "@/lib/payment-invites";
 import { getClientIp, validateOrigin } from "@/lib/security/origin";
 import { rateLimit } from "@/lib/security/rate-limit";
@@ -30,6 +31,10 @@ export async function POST(request: NextRequest) {
     const inviteResult = await getPaymentInviteByToken(parsed.data.inviteToken);
     if (!inviteResult.ok) {
       return NextResponse.json({ error: "La invitacion no es valida, no esta aprobada o ya expiro." }, { status: 403 });
+    }
+
+    if (!isInviteOtpVerified(request, inviteResult.invite.id)) {
+      return NextResponse.json({ error: "Verifica tu correo antes de continuar al pago." }, { status: 403 });
     }
 
     const checkoutAllowed = canCheckoutInvite(inviteResult.invite, parsed.data.plan, parsed.data.paymentMethod);
