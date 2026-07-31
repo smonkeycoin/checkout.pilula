@@ -1,8 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
-import { getEnv } from "@/lib/env";
+import { type AppEnv, getEnv } from "@/lib/env";
 
-export const ADMIN_ALLOWLIST = ["pilulamedplanner@gmail.com"];
+export const ADMIN_ACCESS_DENIED_MESSAGE = "Esta cuenta no tiene acceso al panel de PÍLULA";
+
+export function getAdminAllowedEmails(env: AppEnv = getEnv()) {
+  return env.ADMIN_ALLOWED_EMAIL.split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function isAdminAllowedEmail(email: string | null | undefined, env: AppEnv = getEnv()) {
+  return Boolean(email && getAdminAllowedEmails(env).includes(email.toLowerCase()));
+}
 
 export async function verifyAdminRequest(request: NextRequest) {
   const env = getEnv();
@@ -17,7 +27,7 @@ export async function verifyAdminRequest(request: NextRequest) {
   });
   const { data, error } = await supabase.auth.getUser(token);
   const email = data.user?.email?.toLowerCase();
-  if (error || !email || !ADMIN_ALLOWLIST.includes(email)) {
+  if (error || !isAdminAllowedEmail(email, env)) {
     return { ok: false as const, error: "No autorizado" };
   }
 

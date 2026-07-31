@@ -1,17 +1,14 @@
 "use client";
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type Row = Record<string, unknown>;
 
 function useSupabase() {
-  return useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SITE_URL || "";
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    return url && anon ? createClient(url, anon) : null;
-  }, []);
+  return useMemo(() => createSupabaseBrowserClient(), []);
 }
 
 export function AdminNav() {
@@ -26,10 +23,24 @@ export function AdminNav() {
   );
 }
 
-export function AdminLogin() {
+export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
   const supabase = useSupabase();
   const [email, setEmail] = useState("pilulamedplanner@gmail.com");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(errorMessage || "");
+
+  async function continueWithGoogle() {
+    if (!supabase) {
+      setMessage("Configura NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+      return;
+    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`
+      }
+    });
+    if (error) setMessage("No se pudo iniciar sesión con Google.");
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,20 +50,32 @@ export function AdminLogin() {
     }
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/admin` }
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/admin` }
     });
     setMessage(error ? "No se pudo enviar el magic link." : "Revisa tu correo para abrir el panel.");
   }
 
   return (
-    <form onSubmit={submit} className="mt-8 grid max-w-md gap-4">
-      <label className="grid gap-2 text-sm">
-        Correo autorizado
-        <input className="min-h-11 border border-pilula-gold/25 bg-pilula-black px-3" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-      </label>
-      <button className="min-h-11 bg-pilula-burgundy px-5 text-sm font-semibold text-white">Enviar magic link</button>
+    <div className="mt-8 grid max-w-md gap-5">
+      <button
+        className="inline-flex min-h-11 items-center justify-center bg-pilula-burgundy px-5 text-sm font-semibold text-white hover:bg-[#7A0A40]"
+        type="button"
+        onClick={continueWithGoogle}
+      >
+        Continuar con Google
+      </button>
+
+      <form onSubmit={submit} className="grid gap-3 border border-pilula-gold/15 p-4">
+        <p className="text-xs uppercase tracking-[0.18em] text-pilula-gold">Respaldo</p>
+        <label className="grid gap-2 text-sm text-pilula-ivory/75">
+          Magic link
+          <input className="min-h-11 border border-pilula-gold/25 bg-pilula-black px-3 text-pilula-ivory" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        </label>
+        <button className="min-h-11 border border-pilula-gold/30 px-5 text-sm font-semibold text-pilula-ivory" type="submit">Enviar magic link</button>
+      </form>
+
       {message ? <p className="text-sm text-pilula-ivory/75">{message}</p> : null}
-    </form>
+    </div>
   );
 }
 

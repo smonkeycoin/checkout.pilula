@@ -73,6 +73,7 @@ Configurar en `.env.local` y Vercel:
 - `STRIPE_TAX_RATE_IVA_16`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `ADMIN_ALLOWED_EMAIL` lista de correos separados por comas, por ejemplo `pilulamedplanner@gmail.com,trinopc1@gmail.com`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `RESEND_API_KEY`

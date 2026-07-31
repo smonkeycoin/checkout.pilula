@@ -8,6 +8,7 @@ const envSchema = z.object({
   NEXT_PUBLIC_SUPPORT_WHATSAPP: z.string().default("525532019586"),
   NEXT_PUBLIC_SUPABASE_URL: z.string().optional().default(""),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional().default(""),
+  ADMIN_ALLOWED_EMAIL: z.string().default("pilulamedplanner@gmail.com"),
   STRIPE_SECRET_KEY: z.string().default("sk_test_placeholder"),
   STRIPE_WEBHOOK_SECRET: z.string().default("whsec_placeholder"),
   STRIPE_PRICE_DOCTOR: z.string().default("price_placeholder"),
