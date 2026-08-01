@@ -7,6 +7,10 @@ import type Stripe from "stripe";
 
 let resend: Resend | null = null;
 const sentKeys = new Set<string>();
+type ResendPayload = Parameters<Resend["emails"]["send"]>[0];
+type EmailSendResult =
+  | { sent: true; emailId: string }
+  | { sent: false; reason: "already_sent_in_process" | "resend_not_configured" | "resend_error" | "missing_email_id" | "instructions_not_available"; errorCode?: string; emailId?: string };
 
 function getResend() {
   const env = getEnv();
@@ -15,9 +19,46 @@ function getResend() {
   return resend;
 }
 
-export async function sendPaymentEmails(order: OrderRecord) {
-  const env = getEnv();
+export async function sendResendEmail(payload: ResendPayload): Promise<EmailSendResult> {
   const client = getResend();
+  if (!client) return { sent: false, reason: "resend_not_configured" };
+
+  const result = await client.emails.send(payload);
+  if (result.error) {
+    const statusCode = "statusCode" in result.error ? result.error.statusCode : undefined;
+    console.error("[resend:send_failed]", {
+      name: result.error.name,
+      message: result.error.message,
+      statusCode
+    });
+
+    return {
+      sent: false,
+      reason: "resend_error",
+      errorCode: result.error.name
+    };
+  }
+
+  if (!result.data?.id) {
+    console.error("[resend:missing_email_id]");
+    return {
+      sent: false,
+      reason: "missing_email_id"
+    };
+  }
+
+  console.info("[resend:sent]", {
+    emailId: result.data.id
+  });
+
+  return {
+    sent: true,
+    emailId: result.data.id
+  };
+}
+
+export async function sendPaymentEmails(order: OrderRecord): Promise<EmailSendResult> {
+  const env = getEnv();
   const siteUrl = env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
   const dedupeKey = `payment:${order.id}`;
 
@@ -25,7 +66,7 @@ export async function sendPaymentEmails(order: OrderRecord) {
     return { sent: false, reason: "already_sent_in_process" };
   }
 
-  if (!client || !order.email) {
+  if (!order.email) {
     return { sent: false, reason: "resend_not_configured" };
   }
 
@@ -33,7 +74,7 @@ export async function sendPaymentEmails(order: OrderRecord) {
   const owner = ownerEmail(order, siteUrl);
   const ics = buildCalendarIcs();
 
-  await client.emails.send({
+  const buyerResult = await sendResendEmail({
     from: env.EMAIL_FROM,
     to: order.email,
     replyTo: env.EMAIL_REPLY_TO,
@@ -47,8 +88,9 @@ export async function sendPaymentEmails(order: OrderRecord) {
       }
     ]
   });
+  if (!buyerResult.sent) return buyerResult;
 
-  await client.emails.send({
+  const ownerResult = await sendResendEmail({
     from: env.EMAIL_FROM,
     to: env.YOANNA_NOTIFICATION_EMAIL,
     replyTo: env.EMAIL_REPLY_TO,
@@ -56,17 +98,16 @@ export async function sendPaymentEmails(order: OrderRecord) {
     html: owner.html,
     text: owner.text
   });
+  if (!ownerResult.sent) return ownerResult;
 
   sentKeys.add(dedupeKey);
-  return { sent: true };
+  return ownerResult;
 }
 
-export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string) {
+export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string): Promise<EmailSendResult> {
   const env = getEnv();
-  const client = getResend();
-  if (!client) return { sent: false, reason: "resend_not_configured" };
 
-  await client.emails.send({
+  return sendResendEmail({
     from: env.EMAIL_FROM,
     to: invite.email,
     replyTo: env.EMAIL_REPLY_TO,
@@ -83,16 +124,12 @@ export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string)
       </div>`,
     text: `Tu invitación fue aprobada.\nAbre tu enlace privado de pago: ${url}\nEl pago se procesa en Stripe.`
   });
-
-  return { sent: true };
 }
 
-export async function sendPaymentInviteOtpEmail(input: { email: string; code: string; expiresInMinutes: number }) {
+export async function sendPaymentInviteOtpEmail(input: { email: string; code: string; expiresInMinutes: number }): Promise<EmailSendResult> {
   const env = getEnv();
-  const client = getResend();
-  if (!client) return { sent: false, reason: "resend_not_configured" };
 
-  await client.emails.send({
+  return sendResendEmail({
     from: env.EMAIL_FROM,
     to: input.email,
     replyTo: env.EMAIL_REPLY_TO,
@@ -109,16 +146,12 @@ export async function sendPaymentInviteOtpEmail(input: { email: string; code: st
       </div>`,
     text: `Tu código de verificación PÍLULA es ${input.code}. Vence en ${input.expiresInMinutes} minutos.`
   });
-
-  return { sent: true };
 }
 
-export async function notifyInvoiceRequest(input: { orderReference: string; invoiceEmail: string }) {
+export async function notifyInvoiceRequest(input: { orderReference: string; invoiceEmail: string }): Promise<EmailSendResult> {
   const env = getEnv();
-  const client = getResend();
-  if (!client) return { sent: false, reason: "resend_not_configured" };
 
-  await client.emails.send({
+  return sendResendEmail({
     from: env.EMAIL_FROM,
     to: env.ACCOUNTING_NOTIFICATION_EMAIL || env.YOANNA_NOTIFICATION_EMAIL,
     replyTo: env.EMAIL_REPLY_TO,
@@ -126,15 +159,11 @@ export async function notifyInvoiceRequest(input: { orderReference: string; invo
     html: `<p>Nueva solicitud de factura para la orden ${input.orderReference}.</p><p>Correo factura: ${input.invoiceEmail}</p>`,
     text: `Nueva solicitud de factura para la orden ${input.orderReference}.\nCorreo factura: ${input.invoiceEmail}`
   });
-
-  return { sent: true };
 }
 
-export async function notifyManualReview(input: { orderReference: string; reason: string }) {
+export async function notifyManualReview(input: { orderReference: string; reason: string }): Promise<EmailSendResult> {
   const env = getEnv();
-  const client = getResend();
-  if (!client) return { sent: false, reason: "resend_not_configured" };
-  await client.emails.send({
+  return sendResendEmail({
     from: env.EMAIL_FROM,
     to: env.YOANNA_NOTIFICATION_EMAIL,
     replyTo: env.EMAIL_REPLY_TO,
@@ -142,16 +171,14 @@ export async function notifyManualReview(input: { orderReference: string; reason
     html: `<p>Orden ${input.orderReference} requiere revisión manual.</p><p>Motivo: ${input.reason}</p>`,
     text: `Orden ${input.orderReference} requiere revisión manual.\nMotivo: ${input.reason}`
   });
-  return { sent: true };
 }
 
-export async function sendBankTransferInstructionsEmail(order: OrderRecord, session: Stripe.Checkout.Session) {
+export async function sendBankTransferInstructionsEmail(order: OrderRecord, session: Stripe.Checkout.Session): Promise<EmailSendResult> {
   const env = getEnv();
-  const client = getResend();
   const paymentIntent = typeof session.payment_intent === "string" ? null : session.payment_intent;
   const instructions = paymentIntent?.next_action?.display_bank_transfer_instructions;
-  if (!client || !order.email || !instructions) return { sent: false, reason: "instructions_not_available" };
-  await client.emails.send({
+  if (!order.email || !instructions) return { sent: false, reason: "instructions_not_available" };
+  return sendResendEmail({
     from: env.EMAIL_FROM,
     to: order.email,
     replyTo: env.EMAIL_REPLY_TO,
@@ -176,5 +203,4 @@ export async function sendBankTransferInstructionsEmail(order: OrderRecord, sess
       "Una transferencia sin referencia correcta puede tardar en conciliarse."
     ].filter(Boolean).join("\n")
   });
-  return { sent: true };
 }

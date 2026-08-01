@@ -17,6 +17,8 @@ type PaymentInviteOtpRow = {
   attempts: number;
   expires_at: string;
   created_at: string;
+  email_sent_at: string | null;
+  invalidated_at: string | null;
   verified_at: string | null;
 };
 
@@ -104,7 +106,9 @@ export async function createInviteOtp(input: { inviteId: string; email: string }
     .from("payment_invite_otps")
     .select("id", { count: "exact", head: true })
     .eq("invite_id", input.inviteId)
-    .gte("created_at", since);
+    .not("email_sent_at", "is", null)
+    .is("invalidated_at", null)
+    .gte("email_sent_at", since);
 
   if ((count || 0) >= OTP_MAX_SENDS_PER_HOUR) {
     return { ok: false as const, reason: "hourly_limit", retryAfterSeconds: 60 * 60 };
@@ -112,35 +116,75 @@ export async function createInviteOtp(input: { inviteId: string; email: string }
 
   const { data: latest } = await supabase
     .from("payment_invite_otps")
-    .select("created_at")
+    .select("email_sent_at")
     .eq("invite_id", input.inviteId)
-    .order("created_at", { ascending: false })
+    .not("email_sent_at", "is", null)
+    .is("invalidated_at", null)
+    .order("email_sent_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  const latestCreatedAt = latest?.created_at ? new Date(String(latest.created_at)).getTime() : 0;
-  const retryAfterMs = latestCreatedAt + OTP_COOLDOWN_MS - now;
+  const latestSentAt = latest?.email_sent_at ? new Date(String(latest.email_sent_at)).getTime() : 0;
+  const retryAfterMs = latestSentAt + OTP_COOLDOWN_MS - now;
   if (retryAfterMs > 0) {
     return { ok: false as const, reason: "cooldown", retryAfterSeconds: Math.ceil(retryAfterMs / 1000) };
   }
 
   const code = generateOtpCode();
   const expiresAt = new Date(now + OTP_TTL_MS).toISOString();
-  const { error } = await supabase.from("payment_invite_otps").insert({
-    invite_id: input.inviteId,
-    code_hash: hashOtpCode({ inviteId: input.inviteId, email: input.email, code }),
-    sent_to_email: input.email.toLowerCase(),
-    expires_at: expiresAt
-  });
+  const { data, error } = await supabase
+    .from("payment_invite_otps")
+    .insert({
+      invite_id: input.inviteId,
+      code_hash: hashOtpCode({ inviteId: input.inviteId, email: input.email, code }),
+      sent_to_email: input.email.toLowerCase(),
+      expires_at: expiresAt
+    })
+    .select("id")
+    .single();
 
   if (error) return { ok: false as const, reason: "insert_failed" };
 
   return {
     ok: true as const,
+    otpId: String(data?.id || ""),
     code,
     expiresAt,
     resendAvailableAt: new Date(now + OTP_COOLDOWN_MS).toISOString()
   };
+}
+
+export async function markInviteOtpEmailSent(otpId: string, emailId?: string) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !otpId) return { ok: false as const, reason: "not_configured" };
+
+  const { error } = await supabase
+    .from("payment_invite_otps")
+    .update({
+      email_sent_at: new Date().toISOString(),
+      resend_email_id: emailId || null
+    })
+    .eq("id", otpId)
+    .is("invalidated_at", null);
+
+  return error ? { ok: false as const, reason: "update_failed" } : { ok: true as const };
+}
+
+export async function invalidateInviteOtp(otpId: string) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase || !otpId) return { ok: false as const, reason: "not_configured" };
+
+  const { error } = await supabase
+    .from("payment_invite_otps")
+    .update({
+      invalidated_at: new Date().toISOString(),
+      expires_at: new Date().toISOString(),
+      attempts: OTP_MAX_ATTEMPTS
+    })
+    .eq("id", otpId)
+    .is("verified_at", null);
+
+  return error ? { ok: false as const, reason: "update_failed" } : { ok: true as const };
 }
 
 export async function verifyInviteOtp(input: { inviteId: string; email: string; code: string }) {
@@ -154,6 +198,8 @@ export async function verifyInviteOtp(input: { inviteId: string; email: string; 
     .from("payment_invite_otps")
     .select("*")
     .eq("invite_id", input.inviteId)
+    .not("email_sent_at", "is", null)
+    .is("invalidated_at", null)
     .is("verified_at", null)
     .gt("expires_at", now)
     .order("created_at", { ascending: false })

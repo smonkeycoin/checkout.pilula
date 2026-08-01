@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { sendPaymentInviteOtpEmail } from "@/lib/email";
-import { createInviteOtp, maskEmail } from "@/lib/payment-invite-otp";
+import { createInviteOtp, invalidateInviteOtp, markInviteOtpEmailSent, maskEmail } from "@/lib/payment-invite-otp";
 import { getPaymentInviteByToken } from "@/lib/payment-invites";
 import { getClientIp, validateOrigin } from "@/lib/security/origin";
 import { rateLimit } from "@/lib/security/rate-limit";
@@ -52,7 +52,34 @@ export async function POST(request: NextRequest) {
     expiresInMinutes: 10
   });
   if (!sent.sent) {
-    return NextResponse.json({ error: "No se pudo enviar el código." }, { status: 503 });
+    await invalidateInviteOtp(otp.otpId);
+    console.error("[payment_invite_otp:email_failed]", {
+      reason: sent.reason,
+      errorCode: sent.errorCode,
+      emailId: sent.emailId
+    });
+    return NextResponse.json(
+      {
+        error: "No pudimos enviar el código. Intenta nuevamente.",
+        code: "OTP_EMAIL_SEND_FAILED"
+      },
+      { status: 502 }
+    );
+  }
+
+  const marked = await markInviteOtpEmailSent(otp.otpId, sent.emailId);
+  if (!marked.ok) {
+    console.error("[payment_invite_otp:email_mark_failed]", {
+      reason: marked.reason,
+      emailId: sent.emailId
+    });
+    return NextResponse.json(
+      {
+        error: "No pudimos enviar el código. Intenta nuevamente.",
+        code: "OTP_EMAIL_SEND_FAILED"
+      },
+      { status: 502 }
+    );
   }
 
   return NextResponse.json({
