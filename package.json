@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "invite:payment": "tsx scripts/create-payment-invite.ts"
+    "invite:payment": "tsx scripts/create-payment-invite.ts",
+    "stripe:bootstrap": "tsx scripts/bootstrap-stripe.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
