@@ -1,15 +1,26 @@
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
-import { AdminNav } from "./AdminClient";
+import { parseDashboardRange } from "@/lib/admin/dashboard";
+import { AdminNav, DashboardAdmin } from "./AdminClient";
 
-export default function AdminPage() {
+type Props = {
+  searchParams?: Promise<{ range?: string }>;
+};
+
+export default async function AdminPage({ searchParams }: Props) {
+  const params = await searchParams;
+  const range = parseDashboardRange(params?.range);
+
   return (
     <>
       <Header />
-      <main className="mx-auto max-w-5xl px-5 py-12 lg:px-8">
-        <h1 className="text-3xl font-semibold">Panel administrativo.</h1>
-        <p className="mt-3 text-pilula-ivory/70">Gestiona invitaciones, pagos y facturación manual.</p>
-        <div className="mt-8"><AdminNav /></div>
+      <main className="mx-auto grid max-w-[1400px] gap-6 px-5 py-8 lg:grid-cols-[260px_1fr] lg:px-8">
+        <aside>
+          <AdminNav />
+        </aside>
+        <section>
+          <DashboardAdmin initialRange={range} />
+        </section>
       </main>
       <Footer />
     </>

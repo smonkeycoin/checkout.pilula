@@ -16,6 +16,11 @@ export const EVENT = {
 
 export const DISPLAY_CURRENCY = "USD";
 
+export const PROGRAM_CAPACITY = {
+  doctor: 16,
+  patient: 8
+} as const;
+
 export const PLANS = {
   doctor: {
     profileType: "doctor",
