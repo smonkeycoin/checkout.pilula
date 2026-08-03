@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { verifyAdminRequest } from "@/lib/admin-auth";
+import { adminUnauthorizedBody, verifyAdminRequest } from "@/lib/admin-auth";
 import { parseRateToMicros } from "@/lib/money";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -15,7 +15,7 @@ const schema = z.object({
 
 export async function GET(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
   const supabase = getSupabaseAdmin();
   if (!supabase) return NextResponse.json({ rates: [] });
   const { data, error } = await supabase.from("exchange_rates").select("*").order("created_at", { ascending: false });
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Datos invalidos" }, { status: 400 });
   try {

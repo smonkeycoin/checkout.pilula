@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyAdminRequest } from "@/lib/admin-auth";
+import { adminUnauthorizedBody, verifyAdminRequest } from "@/lib/admin-auth";
 import { toCsv } from "@/lib/csv";
 import { redact } from "@/lib/security/text";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
 
   const supabase = getSupabaseAdmin();
   if (!supabase) return NextResponse.json({ payments: [] });

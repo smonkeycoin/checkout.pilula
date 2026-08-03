@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { verifyAdminRequest } from "@/lib/admin-auth";
+import { adminUnauthorizedBody, verifyAdminRequest } from "@/lib/admin-auth";
 import { sendPaymentInviteEmail } from "@/lib/email";
 import { buildPaymentInviteUrl, buildWhatsappUrl, createInviteToken, type PaymentInvite } from "@/lib/payment-invites";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -16,7 +16,7 @@ type Props = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: Props) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
 
   const { id } = await params;
   const parsed = actionSchema.safeParse(await request.json());

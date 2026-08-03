@@ -11,7 +11,12 @@ type AdminLoginPageProps = {
 
 export default async function AdminLoginPage({ searchParams }: AdminLoginPageProps) {
   const params = await searchParams;
-  const errorMessage = params?.error === "unauthorized" ? ADMIN_ACCESS_DENIED_MESSAGE : undefined;
+  const errorMessage =
+    params?.error === "unauthorized"
+      ? ADMIN_ACCESS_DENIED_MESSAGE
+      : params?.error === "session_expired"
+        ? "Tu sesión expiró. Inicia sesión nuevamente."
+        : undefined;
 
   return (
     <>

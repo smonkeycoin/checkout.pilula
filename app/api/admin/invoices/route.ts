@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { verifyAdminRequest } from "@/lib/admin-auth";
+import { adminUnauthorizedBody, verifyAdminRequest } from "@/lib/admin-auth";
 import { toCsv } from "@/lib/csv";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -13,7 +13,7 @@ const patchSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
 
   const supabase = getSupabaseAdmin();
   if (!supabase) return NextResponse.json({ invoices: [] });
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
 
   const parsed = patchSchema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Datos invalidos" }, { status: 400 });

@@ -1,11 +1,11 @@
 "use client";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowRight, FileText, LayoutDashboard, LogOut, RefreshCw, Settings, Ticket, Wallet } from "lucide-react";
 import { formatMoney, type PaymentCurrency } from "@/config/checkout";
+import { AdminAuthError, adminFetch, downloadAdminCsv } from "@/lib/admin-api-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type Row = Record<string, unknown>;
@@ -139,8 +139,70 @@ export function AdminNav() {
   );
 }
 
-export function DashboardAdmin({ initialRange = "30d" }: { initialRange?: DashboardRange }) {
+export function AdminShell({
+  children,
+  title,
+  subtitle
+}: {
+  children: React.ReactNode;
+  title?: string;
+  subtitle?: string;
+}) {
   const supabase = useSupabase();
+  const router = useRouter();
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    async function checkSession() {
+      const {
+        data: { session }
+      } = await supabase?.auth.getSession() || { data: { session: null } };
+      if (!active) return;
+      if (!session?.access_token) {
+        router.replace("/admin/login");
+        return;
+      }
+      setChecking(false);
+    }
+    void checkSession();
+    return () => {
+      active = false;
+    };
+  }, [router, supabase]);
+
+  if (checking) {
+    return (
+      <main className="mx-auto grid max-w-[1400px] gap-6 px-5 py-8 lg:grid-cols-[260px_1fr] lg:px-8">
+        <aside>
+          <AdminNav />
+        </aside>
+        <section>
+          <DashboardSkeleton />
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="mx-auto grid max-w-[1400px] gap-6 px-5 py-8 lg:grid-cols-[260px_1fr] lg:px-8">
+      <aside>
+        <AdminNav />
+      </aside>
+      <section className="min-w-0">
+        {title ? (
+          <header className="mb-6 border border-pilula-gold/15 bg-pilula-charcoal p-5">
+            <h1 className="text-3xl font-semibold">{title}</h1>
+            {subtitle ? <p className="mt-2 text-sm leading-6 text-pilula-ivory/70">{subtitle}</p> : null}
+          </header>
+        ) : null}
+        {children}
+      </section>
+    </main>
+  );
+}
+
+export function DashboardAdmin({ initialRange = "30d" }: { initialRange?: DashboardRange }) {
   const router = useRouter();
   const [range, setRange] = useState<DashboardRange>(initialRange);
   const [data, setData] = useState<DashboardPayload | null>(null);
@@ -152,16 +214,20 @@ export function DashboardAdmin({ initialRange = "30d" }: { initialRange?: Dashbo
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/admin/dashboard?range=${range}`, { headers: await authHeader(supabase) });
+      const response = await adminFetch(`/api/admin/dashboard?range=${range}`);
       const payload = (await response.json()) as DashboardPayload | { error?: string };
       if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "No se pudo cargar el dashboard.");
       setData(payload as DashboardPayload);
     } catch (err) {
+      if (err instanceof AdminAuthError && err.code === "NO_SESSION") {
+        router.replace("/admin/login");
+        return;
+      }
       setError(err instanceof Error ? err.message : "No se pudo cargar el dashboard.");
     } finally {
       setLoading(false);
     }
-  }, [range, supabase]);
+  }, [range, router]);
 
   useEffect(() => {
     void load();
@@ -697,14 +763,8 @@ export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
   );
 }
 
-async function authHeader(supabase: SupabaseClient | null): Promise<Record<string, string>> {
-  const session = await supabase?.auth.getSession();
-  const token = session?.data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export function InvitationsAdmin() {
-  const supabase = useSupabase();
+  const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [createdUrl, setCreatedUrl] = useState("");
   const [form, setForm] = useState({
@@ -722,9 +782,13 @@ export function InvitationsAdmin() {
   });
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/admin/invites", { headers: await authHeader(supabase) });
-    if (response.ok) setRows(((await response.json()) as { invites: Row[] }).invites || []);
-  }, [supabase]);
+    try {
+      const response = await adminFetch("/api/admin/invites");
+      if (response.ok) setRows(((await response.json()) as { invites: Row[] }).invites || []);
+    } catch (err) {
+      if (err instanceof AdminAuthError && err.code === "NO_SESSION") router.replace("/admin/login");
+    }
+  }, [router]);
 
   useEffect(() => {
     void load();
@@ -732,10 +796,9 @@ export function InvitationsAdmin() {
 
   async function create(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/admin/invites", {
+    const response = await adminFetch("/api/admin/invites", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(await authHeader(supabase)) },
-      body: JSON.stringify({ ...form, expiresAt: new Date(form.expiresAt).toISOString() })
+      body: { ...form, expiresAt: new Date(form.expiresAt).toISOString() }
     });
     if (response.ok) {
       const payload = (await response.json()) as { url: string };
@@ -786,12 +849,10 @@ export function InvitationsAdmin() {
 }
 
 function InvitesTable({ rows, onRefresh, onCreatedUrl }: { rows: Row[]; onRefresh: () => Promise<void>; onCreatedUrl: (url: string) => void }) {
-  const supabase = useSupabase();
   async function action(id: string, actionName: string) {
-    const response = await fetch(`/api/admin/invites/${id}`, {
+    const response = await adminFetch(`/api/admin/invites/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", ...(await authHeader(supabase)) },
-      body: JSON.stringify({ action: actionName, sendEmail: actionName === "resend" })
+      body: { action: actionName, sendEmail: actionName === "resend" }
     });
     if (response.ok) {
       const payload = (await response.json()) as { url?: string; whatsappUrl?: string };
@@ -830,20 +891,24 @@ function InvitesTable({ rows, onRefresh, onCreatedUrl }: { rows: Row[]; onRefres
 }
 
 export function AdminData({ endpoint, csvPath, label }: { endpoint: string; csvPath: string; label: string }) {
-  const supabase = useSupabase();
+  const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [filter, setFilter] = useState("");
 
   useEffect(() => {
     async function load() {
-      const response = await fetch(endpoint, { headers: await authHeader(supabase) });
-      if (response.ok) {
-        const payload = (await response.json()) as Record<string, Row[]>;
-        setRows(Object.values(payload)[0] || []);
+      try {
+        const response = await adminFetch(endpoint);
+        if (response.ok) {
+          const payload = (await response.json()) as Record<string, Row[]>;
+          setRows(Object.values(payload)[0] || []);
+        }
+      } catch (err) {
+        if (err instanceof AdminAuthError && err.code === "NO_SESSION") router.replace("/admin/login");
       }
     }
     void load();
-  }, [endpoint, supabase]);
+  }, [endpoint, router]);
 
   return (
     <div className="space-y-5">
@@ -869,23 +934,26 @@ function filterRows(rows: Row[], filter: string) {
 }
 
 export function InvoicesAdmin() {
-  const supabase = useSupabase();
+  const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/admin/invoices", { headers: await authHeader(supabase) });
-    if (response.ok) setRows(((await response.json()) as { invoices: Row[] }).invoices || []);
-  }, [supabase]);
+    try {
+      const response = await adminFetch("/api/admin/invoices");
+      if (response.ok) setRows(((await response.json()) as { invoices: Row[] }).invoices || []);
+    } catch (err) {
+      if (err instanceof AdminAuthError && err.code === "NO_SESSION") router.replace("/admin/login");
+    }
+  }, [router]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function updateStatus(id: string, status: string) {
-    await fetch("/api/admin/invoices", {
+    await adminFetch("/api/admin/invoices", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", ...(await authHeader(supabase)) },
-      body: JSON.stringify({ id, status })
+      body: { id, status }
     });
     await load();
   }
@@ -924,7 +992,7 @@ export function InvoicesAdmin() {
 }
 
 export function PricingConfigAdmin() {
-  const supabase = useSupabase();
+  const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
   const [form, setForm] = useState({
     rate: "",
@@ -934,9 +1002,13 @@ export function PricingConfigAdmin() {
   });
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/admin/pricing", { headers: await authHeader(supabase) });
-    if (response.ok) setRows(((await response.json()) as { rates: Row[] }).rates || []);
-  }, [supabase]);
+    try {
+      const response = await adminFetch("/api/admin/pricing");
+      if (response.ok) setRows(((await response.json()) as { rates: Row[] }).rates || []);
+    } catch (err) {
+      if (err instanceof AdminAuthError && err.code === "NO_SESSION") router.replace("/admin/login");
+    }
+  }, [router]);
 
   useEffect(() => {
     void load();
@@ -944,14 +1016,13 @@ export function PricingConfigAdmin() {
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await fetch("/api/admin/pricing", {
+    await adminFetch("/api/admin/pricing", {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(await authHeader(supabase)) },
-      body: JSON.stringify({
+      body: {
         ...form,
         effectiveFrom: new Date(form.effectiveFrom).toISOString(),
         effectiveUntil: form.effectiveUntil ? new Date(form.effectiveUntil).toISOString() : null
-      })
+      }
     });
     await load();
   }
@@ -974,17 +1045,8 @@ export function PricingConfigAdmin() {
 }
 
 function ExportButton({ endpoint, filename, label }: { endpoint: string; filename: string; label: string }) {
-  const supabase = useSupabase();
   async function download() {
-    const response = await fetch(endpoint, { headers: await authHeader(supabase) });
-    if (!response.ok) return;
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    await downloadAdminCsv(endpoint, filename);
   }
   return (
     <button className="inline-flex min-h-11 items-center border border-pilula-gold/30 px-4 text-sm" onClick={download}>

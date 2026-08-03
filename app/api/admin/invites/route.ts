@@ -4,7 +4,7 @@ import {
   inviteCreateErrorResponse,
   logPaymentInviteCreateError
 } from "@/lib/admin-invite-errors";
-import { verifyAdminRequest } from "@/lib/admin-auth";
+import { adminUnauthorizedBody, verifyAdminRequest } from "@/lib/admin-auth";
 import { sendPaymentInviteEmail } from "@/lib/email";
 import { buildPaymentInviteUrl, buildWhatsappUrl, createPaymentInvite } from "@/lib/payment-invites";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -27,7 +27,7 @@ const createSchema = z.object({
 
 export async function GET(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
 
   const supabase = getSupabaseAdmin();
   if (!supabase) return NextResponse.json({ invites: [] });
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
 
   const parsed = createSchema.safeParse(await request.json());
   if (!parsed.success) {

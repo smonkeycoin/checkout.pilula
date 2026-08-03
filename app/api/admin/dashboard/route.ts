@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyAdminRequest } from "@/lib/admin-auth";
+import { adminUnauthorizedBody, verifyAdminRequest } from "@/lib/admin-auth";
 import {
   buildDashboardData,
   dashboardSupabaseError,
@@ -30,7 +30,7 @@ function tableError(table: string, error: { code?: string; message?: string; det
 
 export async function GET(request: NextRequest) {
   const admin = await verifyAdminRequest(request);
-  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: 401 });
+  if (!admin.ok) return NextResponse.json(adminUnauthorizedBody(admin.reason), { status: 401 });
 
   const supabase = getSupabaseAdmin();
   if (!supabase) {
