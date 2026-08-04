@@ -18,7 +18,7 @@ const PRODUCTS = {
   doctor: {
     envName: "STRIPE_PRICE_DOCTOR",
     name: "Hair Transplant Workshop 2026 · Médico participante",
-    description: "Inscripción como médico participante al programa PÍLULA MedPlanner 2026.",
+    description: "Inscripción como médico participante al programa PILULA MedPlanner 2026.",
     metadata: {
       pilula_resource: "doctor",
       event_year: "2026",
@@ -29,7 +29,7 @@ const PRODUCTS = {
   patient: {
     envName: "STRIPE_PRICE_PATIENT",
     name: "Hair Transplant Workshop 2026 · Paciente participante",
-    description: "Participación como paciente seleccionado en PÍLULA MedPlanner 2026.",
+    description: "Participación como paciente seleccionado en PILULA MedPlanner 2026.",
     metadata: {
       pilula_resource: "patient",
       event_year: "2026",

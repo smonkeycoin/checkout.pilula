@@ -17,7 +17,7 @@ export default function TermsPage() {
           {CANCELLATION_RULES.map((rule) => <li key={rule}>{rule}</li>)}
         </ul>
         <h2 className="mt-8 text-xl font-semibold text-pilula-ivory">Facturación</h2>
-        <p>La emisión de CFDI se procesa manualmente por el contador de PÍLULA a partir de la solicitud fiscal posterior al pago.</p>
+        <p>La emisión de CFDI se procesa manualmente por el contador de PILULA a partir de la solicitud fiscal posterior al pago.</p>
         <h2 className="mt-8 text-xl font-semibold text-pilula-ivory">Datos legales</h2>
         <p>Razón social: {LEGAL_PROVIDER.legalName}.</p>
         <p>RFC: {LEGAL_PROVIDER.rfc}.</p>

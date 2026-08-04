@@ -104,7 +104,7 @@ export function AdminNav() {
   return (
     <nav className="grid gap-4 text-sm text-pilula-ivory/75 lg:sticky lg:top-6">
       <div className="border border-pilula-gold/20 bg-pilula-charcoal p-4">
-        <p className="text-base font-semibold text-pilula-ivory">PÍLULA MedPlanner</p>
+        <p className="text-base font-semibold text-pilula-ivory">PILULA MedPlanner</p>
         <p className="mt-1 text-xs uppercase tracking-[0.18em] text-pilula-gold">Panel administrativo</p>
       </div>
       <div className="flex gap-2 overflow-x-auto lg:grid lg:overflow-visible">
@@ -312,7 +312,7 @@ function DashboardHeader({
         <div>
           <h1 className="text-3xl font-semibold tracking-normal text-pilula-ivory md:text-4xl">Resumen operativo</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-pilula-ivory/70">
-            Cobros, lugares e invitaciones de PÍLULA MedPlanner.
+            Cobros, lugares e invitaciones de PILULA MedPlanner.
           </p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs text-pilula-ivory/65">
             <span className="border border-pilula-gold/20 px-3 py-1">Actualizado: {formatDateTime(data?.generatedAt)}</span>

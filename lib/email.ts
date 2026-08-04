@@ -115,7 +115,7 @@ export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string)
     html: `
       <div style="font-family:Arial,sans-serif;background:#080808;color:#F8F4EA;padding:32px">
         <div style="max-width:640px;margin:auto;border:1px solid #C4A64A;padding:28px">
-          <p style="color:#C4A64A;letter-spacing:0.08em">PÍLULA MEDPLANNER</p>
+          <p style="color:#C4A64A;letter-spacing:0.08em">PILULA MEDPLANNER</p>
           <h1>Enlace privado de pago</h1>
           <p>${invite.full_name || invite.email}, tu invitación fue aprobada.</p>
           <p><a href="${url}" style="display:inline-block;background:#660033;color:#FFFFFF;padding:12px 18px;text-decoration:none">Abrir enlace privado</a></p>
@@ -133,18 +133,18 @@ export async function sendPaymentInviteOtpEmail(input: { email: string; code: st
     from: env.EMAIL_FROM,
     to: input.email,
     replyTo: env.EMAIL_REPLY_TO,
-    subject: "Código de verificación · PÍLULA MedPlanner",
+    subject: "Código de verificación · PILULA MedPlanner",
     html: `
       <div style="font-family:Arial,sans-serif;background:#080808;color:#F8F4EA;padding:32px">
         <div style="max-width:560px;margin:auto;border:1px solid #C4A64A;padding:28px">
-          <p style="color:#C4A64A;letter-spacing:0.08em">PÍLULA MEDPLANNER</p>
+          <p style="color:#C4A64A;letter-spacing:0.08em">PILULA MEDPLANNER</p>
           <h1>Verifica tu correo</h1>
           <p>Usa este código para continuar con tu pago privado:</p>
           <p style="font-size:32px;letter-spacing:0.2em;font-weight:bold">${input.code}</p>
           <p>El código vence en ${input.expiresInMinutes} minutos.</p>
         </div>
       </div>`,
-    text: `Tu código de verificación PÍLULA es ${input.code}. Vence en ${input.expiresInMinutes} minutos.`
+    text: `Tu código de verificación PILULA es ${input.code}. Vence en ${input.expiresInMinutes} minutos.`
   });
 }
 

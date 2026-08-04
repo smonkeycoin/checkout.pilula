@@ -9,7 +9,7 @@ export const LEGAL_PROVIDER = {
   taxRegime: "Régimen Simplificado de Confianza",
   legalAddress:
     "Calle Atenas 40, Interior 602, Colonia Juárez, Cuauhtémoc, Ciudad de México, C.P. 06600, México.",
-  tradeName: "PÍLULA MedPlanner"
+  tradeName: "PILULA MedPlanner"
 } as const;
 
 export const REFUND_POLICY_SUMMARY =
@@ -26,7 +26,7 @@ export const CANCELLATION_RULES = [
   "Paciente con 30 días o más puede pedir un cambio sujeto a nueva valoración y aprobación.",
   "Si el equipo médico retira la aprobación y no existe alternativa segura o viable, se procesará devolución.",
   "Casos extraordinarios documentados pueden autorizar cambio.",
-  "Si PÍLULA cancela definitivamente por causa imputable, devolverá el importe y respetará derechos legales."
+  "Si PILULA cancela definitivamente por causa imputable, devolverá el importe y respetará derechos legales."
 ] as const;
 
 export function termsHash() {

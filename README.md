@@ -1,11 +1,11 @@
 # PILULA Checkout
 
-Checkout privado para PÍLULA MedPlanner y la 7ª edición del Hair Transplant Workshop by GeVa. La página pública no crea sesiones de pago; únicamente muestra solicitud de lugar para médicos y solicitud de valoración para pacientes. Todo pago nace desde una invitación aprobada en servidor y puede operar tarjeta USD, tarjeta MXN o SPEI MXN.
+Checkout privado para PILULA MedPlanner y la 7ª edición del Hair Transplant Workshop by GeVa. La página pública no crea sesiones de pago; únicamente muestra solicitud de lugar para médicos y solicitud de valoración para pacientes. Todo pago nace desde una invitación aprobada en servidor y puede operar tarjeta USD, tarjeta MXN o SPEI MXN.
 
 ## Arquitectura
 
 - Next.js App Router, TypeScript estricto y Tailwind CSS.
-- Stripe Checkout alojado por Stripe; PÍLULA no recibe números completos de tarjeta.
+- Stripe Checkout alojado por Stripe; PILULA no recibe números completos de tarjeta.
 - Supabase para órdenes, invitaciones, eventos, solicitudes de CFDI y Supabase Auth del admin.
 - Service role solo en rutas de servidor.
 - Resend para invitaciones, confirmaciones y notificaciones.
@@ -83,12 +83,12 @@ Configurar en `.env.local` y Vercel:
 
 ## Precios definitivos
 
-PÍLULA absorbe la comisión de Stripe. No se agrega processing fee, service fee, convenience fee ni recargo.
+PILULA absorbe la comisión de Stripe. No se agrega processing fee, service fee, convenience fee ni recargo.
 
 - Doctor: subtotal `USD 6,000.00`, IVA `USD 960.00`, total `USD 6,960.00`.
 - Paciente: subtotal `USD 800.00`, IVA `USD 128.00`, total `USD 928.00`.
 
-Para MXN, la invitación congela el tipo de cambio PÍLULA:
+Para MXN, la invitación congela el tipo de cambio PILULA:
 
 ```text
 base_amount_mxn = base_amount_usd × exchange_rate
@@ -214,13 +214,13 @@ Estados manuales:
 - Régimen de capital: `Sociedad por Acciones Simplificada`
 - Régimen fiscal: `Régimen Simplificado de Confianza`
 - Domicilio: `Calle Atenas 40, Interior 602, Colonia Juárez, Cuauhtémoc, Ciudad de México, C.P. 06600, México.`
-- Nombre comercial: `PÍLULA MedPlanner`
+- Nombre comercial: `PILULA MedPlanner`
 
 No guardar ni mostrar datos bancarios.
 
 ## SPEI
 
-La app no muestra cuentas bancarias internas de PÍLULA. Las instrucciones y referencia provienen de Stripe. Si el pago recibido es menor al total, la orden queda `partially_funded` y muestra saldo pendiente. Si llega después del vencimiento, la orden queda `requires_manual_review` y se notifica a Yoanna.
+La app no muestra cuentas bancarias internas de PILULA. Las instrucciones y referencia provienen de Stripe. Si el pago recibido es menor al total, la orden queda `partially_funded` y muestra saldo pendiente. Si llega después del vencimiento, la orden queda `requires_manual_review` y se notifica a Yoanna.
 
 ## Dominios
 

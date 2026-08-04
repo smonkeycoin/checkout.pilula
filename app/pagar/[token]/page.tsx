@@ -91,13 +91,13 @@ export default async function PaymentInvitePage({ params }: Props) {
             {invite.invite.payment_currency === "mxn" ? (
               <div className="mt-3 space-y-1 text-sm text-pilula-ivory/65">
                 <p>Precio total de referencia: {formatUsd(invite.invite.base_amount_total_usd)}, IVA incluido.</p>
-                <p>Tipo de cambio PÍLULA aplicado: {invite.invite.exchange_rate_mxn_per_usd} MXN por USD.</p>
+                <p>Tipo de cambio PILULA aplicado: {invite.invite.exchange_rate_mxn_per_usd} MXN por USD.</p>
                 <p>Importe respetado hasta: {expiresAt}.</p>
                 <p>El importe en pesos fue fijado al emitir esta invitación y no cambiará durante su vigencia.</p>
               </div>
             ) : null}
             <p className="mt-3 text-sm text-pilula-ivory/65">
-              Moneda: {invite.invite.payment_currency.toUpperCase()}. PÍLULA absorbe la comisión de Stripe.
+              Moneda: {invite.invite.payment_currency.toUpperCase()}. PILULA absorbe la comisión de Stripe.
             </p>
           </div>
           {invite.invite.profile_type === "patient" ? (

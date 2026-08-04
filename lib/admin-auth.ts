@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { type AppEnv, getEnv } from "@/lib/env";
 
-export const ADMIN_ACCESS_DENIED_MESSAGE = "Esta cuenta no tiene acceso al panel de PÍLULA";
+export const ADMIN_ACCESS_DENIED_MESSAGE = "Esta cuenta no tiene acceso al panel de PILULA";
 
 export function getAdminAllowedEmails(env: AppEnv = getEnv()) {
   return env.ADMIN_ALLOWED_EMAIL.split(",")

@@ -224,7 +224,7 @@ export function buildPaymentInviteUrl(token: string) {
 export function buildWhatsappUrl(invite: Pick<PaymentInvite, "whatsapp" | "full_name">, url: string) {
   const phone = (invite.whatsapp || "").replace(/\D/g, "");
   const text = encodeURIComponent(
-    `Hola${invite.full_name ? ` ${invite.full_name}` : ""}, te compartimos tu enlace privado de pago de PÍLULA MedPlanner: ${url}`
+    `Hola${invite.full_name ? ` ${invite.full_name}` : ""}, te compartimos tu enlace privado de pago de PILULA MedPlanner: ${url}`
   );
   return `https://wa.me/${phone}?text=${text}`;
 }
