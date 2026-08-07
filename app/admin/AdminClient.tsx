@@ -17,6 +17,16 @@ type DashboardPayload = {
   summary: {
     totalMxn: number;
     totalUsd: number;
+    contractedMxn: number;
+    contractedUsd: number;
+    cashMxn: number;
+    cashUsd: number;
+    receivableMxn: number;
+    receivableUsd: number;
+    depositCount: number;
+    fullPaymentCount: number;
+    orderCount: number;
+    paidCustomerCount: number;
     paidCount: number;
     pendingCount: number;
     doctorsConfirmed: number;
@@ -350,10 +360,16 @@ function DashboardHeader({
 
 function KpiGrid({ data }: { data: DashboardPayload }) {
   const cards = [
-    { label: "Cobrado total MXN", value: money(data.summary.totalMxn, "mxn") },
-    { label: "Cobrado total USD", value: money(data.summary.totalUsd, "usd") },
-    { label: "Pagos confirmados", value: String(data.summary.paidCount) },
-    { label: "Pendientes", value: String(data.summary.pendingCount) },
+    { label: "Ventas contratadas MXN", value: money(data.summary.contractedMxn, "mxn") },
+    { label: "Ventas contratadas USD", value: money(data.summary.contractedUsd, "usd") },
+    { label: "Cash cobrado MXN", value: money(data.summary.cashMxn, "mxn") },
+    { label: "Cash cobrado USD", value: money(data.summary.cashUsd, "usd") },
+    { label: "Saldo por cobrar MXN", value: money(data.summary.receivableMxn, "mxn") },
+    { label: "Saldo por cobrar USD", value: money(data.summary.receivableUsd, "usd") },
+    { label: "Anticipos", value: String(data.summary.depositCount) },
+    { label: "Pagos completos", value: String(data.summary.fullPaymentCount) },
+    { label: "Órdenes", value: String(data.summary.orderCount) },
+    { label: "Clientes pagados", value: String(data.summary.paidCustomerCount) },
     { label: "Lugares médicos confirmados", value: String(data.summary.doctorsConfirmed) },
     { label: "Pacientes confirmados", value: String(data.summary.patientsConfirmed) }
   ];

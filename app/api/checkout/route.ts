@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertLiveLegalReady } from "@/config/legal";
 import { canCheckoutInvite, validateCheckoutPayload } from "@/lib/checkout-guard";
-import { getEnv, isLiveStripeKey, isPlaceholder } from "@/lib/env";
+import { EnvConfigurationError, assertPaymentRuntimeReady, getEnv, isPlaceholder } from "@/lib/env";
 import { sendBankTransferInstructionsEmail } from "@/lib/email";
-import { createOrderFromInvite, markOrderCheckoutOpen } from "@/lib/orders";
+import { createOrderFromInvite, getReusableCheckoutOrder, markOrderCheckoutOpen } from "@/lib/orders";
 import { isInviteOtpVerified } from "@/lib/payment-invite-otp";
 import { getPaymentInviteByToken } from "@/lib/payment-invites";
 import { getClientIp, validateOrigin } from "@/lib/security/origin";
 import { rateLimit } from "@/lib/security/rate-limit";
 import { createCheckoutSession } from "@/lib/stripe/checkout-session";
+import { getStripe } from "@/lib/stripe/client";
 
 export const runtime = "nodejs";
 
@@ -79,17 +79,32 @@ export async function POST(request: NextRequest) {
 
     const env = getEnv();
     context.taxRateId = env.STRIPE_TAX_RATE_IVA_16;
-    const legal = assertLiveLegalReady();
-    if (process.env.NODE_ENV === "production" && isLiveStripeKey(env.STRIPE_SECRET_KEY) && !legal.approved) {
-      return NextResponse.json({ error: "Lanzamiento live bloqueado hasta aprobacion legal." }, { status: 503 });
-    }
+    const runtime = assertPaymentRuntimeReady();
 
     if (
-      isPlaceholder(env.STRIPE_SECRET_KEY) ||
-      isPlaceholder(env.STRIPE_TAX_RATE_IVA_16) ||
-      (inviteResult.invite.payment_currency === "usd" && isPlaceholder(inviteResult.invite.stripe_price_id || ""))
+      inviteResult.invite.payment_currency === "usd" &&
+      isPlaceholder(inviteResult.invite.stripe_price_id || "")
     ) {
       return NextResponse.json({ error: "Stripe aun no esta configurado." }, { status: 503 });
+    }
+
+    const reusableOrder = await getReusableCheckoutOrder({
+      paymentInviteId: inviteResult.invite.id,
+      paymentMethod: parsed.data.paymentMethod,
+      livemode: runtime.livemode
+    });
+    if (reusableOrder?.stripe_checkout_session_id) {
+      try {
+        const reusableSession = await getStripe().checkout.sessions.retrieve(reusableOrder.stripe_checkout_session_id);
+        if (reusableSession.status === "open" && reusableSession.url) {
+          return NextResponse.json({ url: reusableSession.url });
+        }
+      } catch {
+        console.info("[stripe_checkout:reuse_skipped]", {
+          inviteId: inviteResult.invite.id,
+          orderId: reusableOrder.id
+        });
+      }
     }
 
     const order = await createOrderFromInvite({
@@ -114,18 +129,28 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
+    if (error instanceof EnvConfigurationError) {
+      console.error("[checkout_env]", {
+        code: error.code,
+        inviteId: context.inviteId,
+        orderId: context.orderId
+      });
+      return NextResponse.json({ error: "El pago aun no esta configurado para este ambiente." }, { status: 503 });
+    }
+
+    const includeDetails = process.env.NODE_ENV !== "production";
     if (isStripeError(error)) {
       console.error("[stripe_checkout]", {
         type: error.type,
         code: error.code,
-        message: error.message,
+        message: includeDetails ? error.message : undefined,
         rawType: error.rawType || error.raw?.type,
         requestId: error.requestId || error.raw?.requestId,
-        stack: error.stack,
+        stack: includeDetails ? error.stack : undefined,
         ...context
       });
 
-      if (process.env.NODE_ENV !== "production") {
+      if (includeDetails) {
         return NextResponse.json(
           {
             error: "STRIPE_CHECKOUT_FAILED",
@@ -139,10 +164,10 @@ export async function POST(request: NextRequest) {
       console.error("[stripe_checkout]", {
         type: error instanceof Error ? error.name : typeof error,
         code: undefined,
-        message: error instanceof Error ? error.message : String(error),
+        message: includeDetails ? (error instanceof Error ? error.message : String(error)) : undefined,
         rawType: undefined,
         requestId: undefined,
-        stack: error instanceof Error ? error.stack : undefined,
+        stack: includeDetails && error instanceof Error ? error.stack : undefined,
         ...context
       });
     }

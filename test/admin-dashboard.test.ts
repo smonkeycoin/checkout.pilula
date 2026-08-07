@@ -25,6 +25,15 @@ function paidOrder(id: string, currency: "mxn" | "usd", total: number, profile: 
     stripe_checkout_session_id: `cs_${id}`,
     stripe_payment_intent_id: `pi_${id}`,
     stripe_customer_id: `cus_${id}`,
+    environment: "live",
+    livemode: true,
+    is_internal_test: false,
+    excluded_from_kpis: false,
+    payment_option: "full",
+    deposit_amount: null,
+    balance_amount: 0,
+    deposit_status: "not_applicable",
+    balance_status: "not_applicable",
     full_name: "Paciente Test",
     email: "test@example.com",
     phone: "525500000000",
@@ -57,6 +66,11 @@ describe("admin dashboard metrics", () => {
     const data = buildDashboardData(baseInput());
     expect(data.summary.totalMxn).toBe(0);
     expect(data.summary.totalUsd).toBe(0);
+    expect(data.summary.contractedMxn).toBe(0);
+    expect(data.summary.cashMxn).toBe(0);
+    expect(data.summary.receivableMxn).toBe(0);
+    expect(data.summary.orderCount).toBe(0);
+    expect(data.summary.paidCustomerCount).toBe(0);
     expect(data.recentPayments).toEqual([]);
     expect(data.integrations.stripe).toBe("test_mode");
   });
@@ -64,6 +78,9 @@ describe("admin dashboard metrics", () => {
   it("calcula un pago MXN sin mezclar monedas", () => {
     const data = buildDashboardData(baseInput({ orders: [paidOrder("mxn", "mxn", 1716800)] }));
     expect(data.summary.totalMxn).toBe(1716800);
+    expect(data.summary.contractedMxn).toBe(1716800);
+    expect(data.summary.cashMxn).toBe(1716800);
+    expect(data.summary.receivableMxn).toBe(0);
     expect(data.summary.totalUsd).toBe(0);
     expect(data.chart.mxn).toEqual([{ date: "2026-08-02", amount: 1716800 }]);
     expect(data.chart.usd).toEqual([]);
@@ -74,6 +91,66 @@ describe("admin dashboard metrics", () => {
     expect(data.summary.totalUsd).toBe(92800);
     expect(data.summary.totalMxn).toBe(0);
     expect(data.chart.usd).toEqual([{ date: "2026-08-02", amount: 92800 }]);
+  });
+
+  it("excluye pruebas internas y registros fuera de KPIs comerciales", () => {
+    const data = buildDashboardData(
+      baseInput({
+        orders: [
+          { ...paidOrder("internal", "mxn", 1716800), is_internal_test: true },
+          { ...paidOrder("excluded", "usd", 92800), excluded_from_kpis: true }
+        ],
+        invites: [
+          {
+            id: "invite-internal",
+            profile_type: "patient",
+            status: "paid",
+            environment: "live",
+            livemode: true,
+            is_internal_test: true,
+            excluded_from_kpis: false,
+            created_at: "2026-08-01T12:00:00.000Z",
+            approved_at: "2026-08-01T12:05:00.000Z",
+            opened_at: "2026-08-01T12:10:00.000Z",
+            expires_at: "2026-08-10T12:00:00.000Z",
+            revoked_at: null
+          }
+        ]
+      })
+    );
+    expect(data.summary.contractedMxn).toBe(0);
+    expect(data.summary.contractedUsd).toBe(0);
+    expect(data.summary.cashMxn).toBe(0);
+    expect(data.summary.cashUsd).toBe(0);
+    expect(data.summary.orderCount).toBe(0);
+    expect(data.funnel.created).toBe(0);
+    expect(data.recentPayments).toEqual([]);
+  });
+
+  it("separa venta contratada, cash y saldo por cobrar para anticipos 50/50", () => {
+    const data = buildDashboardData(
+      baseInput({
+        orders: [
+          {
+            ...paidOrder("doctor-deposit", "usd", 696000, "doctor"),
+            status: "partially_paid",
+            payment_option: "deposit",
+            deposit_amount: 348000,
+            balance_amount: 348000,
+            deposit_status: "paid",
+            balance_status: "pending",
+            amount_received: 348000,
+            amount_remaining: 348000
+          }
+        ]
+      })
+    );
+    expect(data.summary.contractedUsd).toBe(696000);
+    expect(data.summary.cashUsd).toBe(348000);
+    expect(data.summary.receivableUsd).toBe(348000);
+    expect(data.summary.depositCount).toBe(1);
+    expect(data.summary.fullPaymentCount).toBe(0);
+    expect(data.summary.orderCount).toBe(1);
   });
 
   it("calcula capacidad doctor y paciente desde pagos confirmados", () => {

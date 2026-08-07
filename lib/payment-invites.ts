@@ -8,7 +8,7 @@ import {
   type PlanKey
 } from "@/config/checkout";
 import { CANCELLATION_POLICY_VERSION, TERMS_VERSION, termsHash } from "@/config/legal";
-import { getEnv } from "@/lib/env";
+import { getEnv, getStripeEnvironment, type StripeEnvironment } from "@/lib/env";
 import { calculateInviteAmounts } from "@/lib/money";
 import { canCheckoutInvite } from "@/lib/checkout-guard";
 import { PaymentInviteSupabaseError } from "@/lib/admin-invite-errors";
@@ -52,6 +52,8 @@ export type PaymentInvite = {
   terms_hash: string;
   cancellation_policy_version: string;
   stripe_customer_id?: string | null;
+  environment?: StripeEnvironment | null;
+  livemode?: boolean | null;
   created_at?: string;
   updated_at?: string;
   metadata?: Record<string, unknown>;
@@ -152,6 +154,7 @@ export async function createPaymentInvite(input: {
   if (!supabase) throw new Error("Supabase no esta configurado");
 
   const env = getEnv();
+  const stripeEnvironment = getStripeEnvironment() || "test";
   const { token, tokenHash } = createInviteToken();
   const expiresAt =
     input.expiresAt || new Date(Date.now() + env.PATIENT_INVITE_TTL_HOURS * 60 * 60 * 1000);
@@ -168,6 +171,8 @@ export async function createPaymentInvite(input: {
       email: sanitizeText(input.email, 180).toLowerCase(),
       whatsapp: sanitizeText(input.whatsapp || "", 40) || null,
       ...defaults,
+      environment: stripeEnvironment,
+      livemode: stripeEnvironment === "live",
       expires_at: expiresAt.toISOString(),
       approved_at: input.approved ? new Date().toISOString() : null,
       metadata: {

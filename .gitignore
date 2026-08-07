@@ -2,6 +2,7 @@ node_modules
 .next
 out
 coverage
+backups
 .env
 .env*.local
 npm-debug.log*

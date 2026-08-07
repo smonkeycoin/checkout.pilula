@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { getEnv } from "@/lib/env";
+import { EnvConfigurationError, assertStripeLivemodeMatchesRuntime, getEnv } from "@/lib/env";
 import { notifyManualReview, sendPaymentEmails } from "@/lib/email";
 import {
   findAwaitingBankTransferOrder,
@@ -15,15 +15,36 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-async function recordEvent(eventId: string, eventType: string) {
+type StripeObjectAuditFields = {
+  id?: string;
+  amount?: number;
+  amount_total?: number | null;
+  amount_received?: number;
+  currency?: string | null;
+};
+
+function eventAuditFields(event: Stripe.Event) {
+  const object = event.data.object as StripeObjectAuditFields;
+  return {
+    object_id: object.id || null,
+    livemode: event.livemode,
+    environment: event.livemode ? "live" : "test",
+    api_version: event.api_version || null,
+    amount: object.amount_total ?? object.amount_received ?? object.amount ?? null,
+    currency: object.currency || null
+  };
+}
+
+async function recordEvent(event: Stripe.Event) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { duplicate: false };
 
   const { error } = await supabase.from("stripe_events").insert({
-    event_id: eventId,
-    event_type: eventType,
+    event_id: event.id,
+    event_type: event.type,
     status: "processing",
-    received_at: new Date().toISOString()
+    received_at: new Date().toISOString(),
+    ...eventAuditFields(event)
   });
 
   if (error?.code === "23505") return { duplicate: true };
@@ -44,7 +65,7 @@ async function finishEvent(eventId: string, status: "processed" | "failed", erro
     .eq("event_id", eventId);
 }
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId: string) {
   const stripe = getStripe();
   const hydrated =
     session.payment_status === "paid"
@@ -53,22 +74,23 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           expand: ["payment_intent"]
         });
 
-  const result = await markOrderPaid(hydrated);
+  const result = await markOrderPaid(hydrated, eventId);
   if (result.updated) {
     const order = await getOrderBySession(hydrated.id);
     if (order?.status === "paid") await sendPaymentEmails(order);
   }
 }
 
-async function handleCashBalanceTransaction(transaction: Stripe.CustomerCashBalanceTransaction) {
+async function handleCashBalanceTransaction(transaction: Stripe.CustomerCashBalanceTransaction, eventId: string) {
   if (transaction.currency !== "mxn") return;
   const customerId = typeof transaction.customer === "string" ? transaction.customer : transaction.customer.id;
-  const order = await findAwaitingBankTransferOrder(customerId, transaction.currency);
+  const order = await findAwaitingBankTransferOrder(customerId, transaction.currency, transaction.livemode);
   if (!order) return;
   const received = transaction.ending_balance;
   const expired = Boolean(order.payment_expires_at && Date.now() > new Date(order.payment_expires_at).getTime());
   const result = await updateOrderFunding(order, received, {
-    expired
+    expired,
+    eventId
   });
   if (result.status === "paid") {
     await sendPaymentEmails({ ...order, status: "paid", amount_received: received, amount_remaining: 0 });
@@ -95,7 +117,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const recorded = await recordEvent(event.id, event.type);
+    assertStripeLivemodeMatchesRuntime(event.livemode);
+  } catch (error) {
+    console.error("[stripe_webhook_env]", {
+      code: error instanceof EnvConfigurationError ? error.code : "STRIPE_ENV_INVALID",
+      eventId: event.id,
+      eventType: event.type,
+      livemode: event.livemode
+    });
+    return NextResponse.json({ error: "Webhook environment mismatch" }, { status: 400 });
+  }
+
+  try {
+    const recorded = await recordEvent(event);
     if (recorded.duplicate) {
       return NextResponse.json({ received: true, duplicate: true });
     }
@@ -103,21 +137,21 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed":
       case "checkout.session.async_payment_succeeded":
-        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, event.id);
         break;
       case "payment_intent.succeeded":
-        await markOrderPaidFromPaymentIntent(event.data.object as Stripe.PaymentIntent);
+        await markOrderPaidFromPaymentIntent(event.data.object as Stripe.PaymentIntent, event.id);
         break;
       case "checkout.session.expired":
-        await updateOrderStatusFromEvent((event.data.object as Stripe.Checkout.Session).id, "expired");
+        await updateOrderStatusFromEvent((event.data.object as Stripe.Checkout.Session).id, "expired", event.id);
         break;
       case "checkout.session.async_payment_failed":
-        await updateOrderStatusFromEvent((event.data.object as Stripe.Checkout.Session).id, "failed");
+        await updateOrderStatusFromEvent((event.data.object as Stripe.Checkout.Session).id, "failed", event.id);
         break;
       case "payment_intent.payment_failed":
         break;
       case "customer_cash_balance_transaction.created":
-        await handleCashBalanceTransaction(event.data.object as Stripe.CustomerCashBalanceTransaction);
+        await handleCashBalanceTransaction(event.data.object as Stripe.CustomerCashBalanceTransaction, event.id);
         break;
       case "charge.refunded":
       case "charge.dispute.created":

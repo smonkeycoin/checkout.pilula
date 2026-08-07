@@ -6,6 +6,7 @@ import { createSignedInvoiceToken } from "@/lib/security/tokens";
 import { sanitizeText } from "@/lib/security/text";
 import type { PaymentInvite } from "@/lib/payment-invites";
 import { markPaymentInvitePaid } from "@/lib/payment-invites";
+import { getStripeEnvironment, type StripeEnvironment } from "@/lib/env";
 
 export type OrderRecord = {
   id: string;
@@ -15,6 +16,10 @@ export type OrderRecord = {
   stripe_checkout_session_id?: string | null;
   stripe_payment_intent_id?: string | null;
   stripe_customer_id?: string | null;
+  stripe_price_id?: string | null;
+  stripe_event_id?: string | null;
+  environment?: StripeEnvironment | null;
+  livemode?: boolean | null;
   full_name?: string | null;
   email?: string | null;
   phone?: string | null;
@@ -42,6 +47,10 @@ export type OrderRecord = {
   created_at?: string;
   updated_at?: string;
   paid_at?: string | null;
+  buyer_confirmation_sent_at?: string | null;
+  buyer_confirmation_email_id?: string | null;
+  owner_confirmation_sent_at?: string | null;
+  owner_confirmation_email_id?: string | null;
 };
 
 export function createOrderReference() {
@@ -57,11 +66,15 @@ export async function createOrderFromInvite(input: {
   metadata?: Record<string, unknown>;
 }) {
   const id = crypto.randomUUID();
+  const stripeEnvironment = getStripeEnvironment() || "test";
   const order: OrderRecord = {
     id,
     reference: createOrderReference(),
     profile_type: input.invite.profile_type,
     status: "created",
+    stripe_price_id: input.invite.stripe_price_id,
+    environment: stripeEnvironment,
+    livemode: stripeEnvironment === "live",
     full_name: input.invite.full_name,
     email: input.invite.email,
     phone: input.invite.whatsapp,
@@ -105,6 +118,8 @@ export async function markOrderCheckoutOpen(orderId: string, session: Stripe.Che
       status: paymentMethod === "bank_transfer" ? "awaiting_bank_transfer" : "awaiting_payment_method",
       stripe_checkout_session_id: session.id,
       stripe_customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
+      environment: session.livemode ? "live" : "test",
+      livemode: session.livemode,
       updated_at: new Date().toISOString()
     })
     .eq("id", orderId);
@@ -115,6 +130,27 @@ export async function getOrderBySession(sessionId: string) {
   if (!supabase) return null;
 
   const { data } = await supabase.from("pilula_orders").select("*").eq("stripe_checkout_session_id", sessionId).maybeSingle();
+  return (data as OrderRecord | null) || null;
+}
+
+export async function getReusableCheckoutOrder(input: {
+  paymentInviteId: string;
+  paymentMethod: PaymentMethod;
+  livemode: boolean;
+}) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  const { data } = await supabase
+    .from("pilula_orders")
+    .select("*")
+    .eq("payment_invite_id", input.paymentInviteId)
+    .eq("payment_method", input.paymentMethod)
+    .eq("livemode", input.livemode)
+    .in("status", ["awaiting_payment_method", "awaiting_bank_transfer"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   return (data as OrderRecord | null) || null;
 }
 
@@ -141,7 +177,7 @@ export function extractStripeFields(session: Stripe.Checkout.Session) {
   };
 }
 
-export async function markOrderPaid(session: Stripe.Checkout.Session) {
+export async function markOrderPaid(session: Stripe.Checkout.Session, eventId?: string) {
   const orderId = session.metadata?.order_id;
   if (!orderId || session.payment_status !== "paid") {
     return { updated: false, reason: "payment_status_not_paid" };
@@ -163,6 +199,9 @@ export async function markOrderPaid(session: Stripe.Checkout.Session) {
       stripe_checkout_session_id: session.id,
       stripe_payment_intent_id: paymentIntent,
       stripe_customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
+      stripe_event_id: eventId || undefined,
+      environment: session.livemode ? "live" : "test",
+      livemode: session.livemode,
       ...stripeFields,
       amount_subtotal: session.amount_subtotal ?? undefined,
       amount_tax: session.total_details?.amount_tax ?? undefined,
@@ -185,7 +224,7 @@ export async function markOrderPaid(session: Stripe.Checkout.Session) {
   return { updated: true };
 }
 
-export async function markOrderPaidFromPaymentIntent(paymentIntent: Stripe.PaymentIntent) {
+export async function markOrderPaidFromPaymentIntent(paymentIntent: Stripe.PaymentIntent, eventId?: string) {
   const orderId = paymentIntent.metadata?.order_id;
   if (!orderId || paymentIntent.status !== "succeeded") return { updated: false };
   const supabase = getSupabaseAdmin();
@@ -199,6 +238,9 @@ export async function markOrderPaidFromPaymentIntent(paymentIntent: Stripe.Payme
     .update({
       status: expired ? "requires_manual_review" : "paid",
       stripe_payment_intent_id: paymentIntent.id,
+      stripe_event_id: eventId || undefined,
+      environment: paymentIntent.livemode ? "live" : "test",
+      livemode: paymentIntent.livemode,
       amount_received: paymentIntent.amount_received,
       amount_remaining: Math.max(order.amount_total - paymentIntent.amount_received, 0),
       paid_at: expired ? null : new Date().toISOString(),
@@ -213,17 +255,17 @@ export async function markOrderPaidFromPaymentIntent(paymentIntent: Stripe.Payme
   return { updated: true };
 }
 
-export async function updateOrderStatusFromEvent(sessionId: string, status: "expired" | "failed" | "cancelled") {
+export async function updateOrderStatusFromEvent(sessionId: string, status: "expired" | "failed" | "cancelled", eventId?: string) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return;
   await supabase
     .from("pilula_orders")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status, stripe_event_id: eventId || undefined, updated_at: new Date().toISOString() })
     .eq("stripe_checkout_session_id", sessionId)
     .neq("status", "paid");
 }
 
-export async function findAwaitingBankTransferOrder(customerId: string, currency: string) {
+export async function findAwaitingBankTransferOrder(customerId: string, currency: string, livemode: boolean) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return null;
   const { data } = await supabase
@@ -231,6 +273,7 @@ export async function findAwaitingBankTransferOrder(customerId: string, currency
     .select("*")
     .eq("stripe_customer_id", customerId)
     .eq("currency", currency)
+    .eq("livemode", livemode)
     .in("status", ["awaiting_bank_transfer", "partially_funded"])
     .order("created_at", { ascending: false })
     .limit(1)
@@ -238,7 +281,7 @@ export async function findAwaitingBankTransferOrder(customerId: string, currency
   return (data as OrderRecord | null) || null;
 }
 
-export async function updateOrderFunding(order: OrderRecord, amountReceived: number, options: { expired?: boolean } = {}) {
+export async function updateOrderFunding(order: OrderRecord, amountReceived: number, options: { expired?: boolean; eventId?: string } = {}) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { status: "partially_funded" };
   const paid = amountReceived >= order.amount_total;
@@ -249,6 +292,7 @@ export async function updateOrderFunding(order: OrderRecord, amountReceived: num
     .from("pilula_orders")
     .update({
       status,
+      stripe_event_id: options.eventId || undefined,
       amount_received: amountReceived,
       amount_remaining: amountRemaining,
       paid_at: paid && !expired ? new Date().toISOString() : order.paid_at,

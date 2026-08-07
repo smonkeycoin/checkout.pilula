@@ -44,6 +44,16 @@ function dashboardPayload() {
     summary: {
       totalMxn: 1716800,
       totalUsd: 0,
+      contractedMxn: 1716800,
+      contractedUsd: 0,
+      cashMxn: 1716800,
+      cashUsd: 0,
+      receivableMxn: 0,
+      receivableUsd: 0,
+      depositCount: 0,
+      fullPaymentCount: 1,
+      orderCount: 1,
+      paidCustomerCount: 1,
       paidCount: 1,
       pendingCount: 0,
       doctorsConfirmed: 0,
@@ -96,7 +106,9 @@ describe("admin components", () => {
 
     render(<DashboardAdmin initialRange="30d" />);
 
-    await waitFor(() => expect(screen.getByText("Cobrado total MXN")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Ventas contratadas MXN")).toBeInTheDocument());
+    expect(screen.getByText("Cash cobrado MXN")).toBeInTheDocument();
+    expect(screen.getByText("Saldo por cobrar MXN")).toBeInTheDocument();
     expect(screen.getAllByText("MXN 17,168.00").length).toBeGreaterThan(0);
     expect(screen.getByText("1 / 8")).toBeInTheDocument();
     expect(mocks.adminFetch).toHaveBeenCalledWith("/api/admin/dashboard?range=30d");

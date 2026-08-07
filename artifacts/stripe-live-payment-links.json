@@ -1,0 +1,69 @@
+{
+  "created_at": "2026-08-07T23:37:50Z",
+  "links": [
+    {
+      "label": "doctor_full",
+      "id": "plink_1U1xKiGkqXZguX59hWdHVbuV",
+      "url": "https://buy.stripe.com/28E00j2LL5m88io7Cj63K00",
+      "livemode": true,
+      "active": true,
+      "metadata": {
+        "app": "pilula",
+        "environment": "live",
+        "managed_by": "pilula_checkout",
+        "participant_type": "doctor",
+        "payment_link_temporary": "true",
+        "payment_type": "full"
+      },
+      "line_items_url": null
+    },
+    {
+      "label": "doctor_deposit",
+      "id": "plink_1U1xKjGkqXZguX59fsVHAQTM",
+      "url": "https://buy.stripe.com/14A5kDeutcOAdCI7Cj63K01",
+      "livemode": true,
+      "active": true,
+      "metadata": {
+        "app": "pilula",
+        "environment": "live",
+        "managed_by": "pilula_checkout",
+        "participant_type": "doctor",
+        "payment_link_temporary": "true",
+        "payment_type": "deposit"
+      },
+      "line_items_url": null
+    },
+    {
+      "label": "patient_full",
+      "id": "plink_1U1xKkGkqXZguX597exX33tg",
+      "url": "https://buy.stripe.com/9B65kD0DDaGs7ek4q763K02",
+      "livemode": true,
+      "active": true,
+      "metadata": {
+        "app": "pilula",
+        "environment": "live",
+        "managed_by": "pilula_checkout",
+        "participant_type": "patient",
+        "payment_link_temporary": "true",
+        "payment_type": "full"
+      },
+      "line_items_url": null
+    },
+    {
+      "label": "patient_deposit",
+      "id": "plink_1U1xKkGkqXZguX59VQ66yTAt",
+      "url": "https://buy.stripe.com/8x2bJ186529W8ioaOv63K03",
+      "livemode": true,
+      "active": true,
+      "metadata": {
+        "app": "pilula",
+        "environment": "live",
+        "managed_by": "pilula_checkout",
+        "participant_type": "patient",
+        "payment_link_temporary": "true",
+        "payment_type": "deposit"
+      },
+      "line_items_url": null
+    }
+  ]
+}

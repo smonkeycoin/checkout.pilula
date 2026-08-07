@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { EVENT, type PaymentMethod, type PlanKey } from "@/config/checkout";
-import { getEnv } from "@/lib/env";
+import { getEnv, getStripeEnvironment } from "@/lib/env";
 import { getStripe } from "@/lib/stripe/client";
 import type { OrderRecord } from "@/lib/orders";
 import type { PaymentInvite } from "@/lib/payment-invites";
@@ -22,7 +22,9 @@ async function ensureStripeCustomer(invite: PaymentInvite) {
     phone: invite.whatsapp || undefined,
     metadata: {
       payment_invite_id: invite.id,
-      source: "checkout_pilula"
+      source: "checkout_pilula",
+      environment: getStripeEnvironment() || "test",
+      livemode: String(getStripeEnvironment() === "live")
     }
   });
   const supabase = getSupabaseAdmin();
@@ -34,6 +36,7 @@ async function ensureStripeCustomer(invite: PaymentInvite) {
 export async function createCheckoutSession({ plan, order, invite, paymentMethod }: CreateCheckoutSessionInput) {
   const env = getEnv();
   const stripe = getStripe();
+  const stripeEnvironment = getStripeEnvironment(env.STRIPE_SECRET_KEY) || "test";
   const siteUrl = env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
   const metadata = {
     event: EVENT.eventMetadata,
@@ -46,7 +49,9 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
     terms_hash: invite.terms_hash,
     cancellation_policy_version: invite.cancellation_policy_version,
     payment_currency: invite.payment_currency,
-    payment_method: paymentMethod
+    payment_method: paymentMethod,
+    environment: stripeEnvironment,
+    livemode: String(stripeEnvironment === "live")
   };
   const usePriceData = invite.payment_currency === "mxn" || !invite.stripe_price_id;
 
@@ -79,7 +84,6 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
     locale: "auto",
     consent_collection: { terms_of_service: "required" },
     allow_promotion_codes: false,
-    payment_method_types: paymentMethod === "bank_transfer" ? ["customer_balance"] : ["card"],
     success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${siteUrl}/cancelled?plan=${plan}`,
     client_reference_id: order.id,
@@ -98,6 +102,7 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
       }
     };
   } else {
+    sessionParams.payment_method_types = ["customer_balance"];
     sessionParams.customer = await ensureStripeCustomer(invite);
     sessionParams.payment_method_options = {
       customer_balance: {

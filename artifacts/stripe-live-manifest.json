@@ -1,0 +1,10 @@
+{
+  "stripe_account_id": "acct_1TzfjVGkqXZguX59",
+  "environment": "live",
+  "canonical_domain": "https://pagos.pilula.com.mx",
+  "tax_rate": { "id": "txr_1U1xDsGkqXZguX59PeINTaU6", "percentage": 16, "inclusive": false, "livemode": true },
+  "products": {
+    "doctor": { "product_id": "prod_V21GTPcqCewV3N", "price_full": "price_1U1xDoGkqXZguX5964rAMFe1", "price_deposit": "price_1U1xDpGkqXZguX59zT5HNWw3", "base_full": 600000, "base_deposit": 300000, "currency": "usd", "livemode": true },
+    "patient": { "product_id": "prod_V21GR26P8hnNfh", "price_full": "price_1U1xDqGkqXZguX59VKIBR4gj", "price_deposit": "price_1U1xDrGkqXZguX59rJJpjpvC", "base_full": 80000, "base_deposit": 40000, "currency": "usd", "livemode": true }
+  }
+}

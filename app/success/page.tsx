@@ -3,7 +3,7 @@ import { CheckCircle2 } from "lucide-react";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { EVENT, formatMoney } from "@/config/checkout";
-import { isPlaceholder, getEnv } from "@/lib/env";
+import { getEnv, getStripeEnvironment, isPlaceholder } from "@/lib/env";
 import { buildInvoiceLink, displayPlanName, getOrderBySession } from "@/lib/orders";
 import { getStripe } from "@/lib/stripe/client";
 
@@ -22,8 +22,11 @@ export default async function SuccessPage({ searchParams }: Props) {
   if (sessionId && !isPlaceholder(env.STRIPE_SECRET_KEY)) {
     try {
       const session = await getStripe().checkout.sessions.retrieve(sessionId);
+      const stripeEnvironment = getStripeEnvironment(env.STRIPE_SECRET_KEY);
       const order = await getOrderBySession(sessionId);
-      if (session.payment_status === "paid" && order) {
+      if (stripeEnvironment && session.livemode !== (stripeEnvironment === "live")) {
+        state = { ok: false, message: "La sesión no coincide con el ambiente de pago configurado." };
+      } else if (session.payment_status === "paid" && order) {
         state = {
           ok: true,
           reference: order.reference,

@@ -4,6 +4,7 @@ import { getEnv } from "@/lib/env";
 import { buyerEmail, buildCalendarIcs, ownerEmail } from "@/emails/templates";
 import type { PaymentInvite } from "@/lib/payment-invites";
 import type Stripe from "stripe";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 let resend: Resend | null = null;
 const sentKeys = new Set<string>();
@@ -17,6 +18,29 @@ function getResend() {
   if (!env.RESEND_API_KEY) return null;
   if (!resend) resend = new Resend(env.RESEND_API_KEY);
   return resend;
+}
+
+async function getPaymentConfirmationState(orderId: string) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from("pilula_orders")
+    .select("buyer_confirmation_sent_at,buyer_confirmation_email_id,owner_confirmation_sent_at,owner_confirmation_email_id")
+    .eq("id", orderId)
+    .maybeSingle();
+  return (data as Pick<
+    OrderRecord,
+    | "buyer_confirmation_sent_at"
+    | "buyer_confirmation_email_id"
+    | "owner_confirmation_sent_at"
+    | "owner_confirmation_email_id"
+  > | null) || null;
+}
+
+async function markPaymentConfirmationSent(orderId: string, fields: Record<string, string>) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
+  await supabase.from("pilula_orders").update({ ...fields, updated_at: new Date().toISOString() }).eq("id", orderId);
 }
 
 export async function sendResendEmail(payload: ResendPayload): Promise<EmailSendResult> {
@@ -70,38 +94,61 @@ export async function sendPaymentEmails(order: OrderRecord): Promise<EmailSendRe
     return { sent: false, reason: "resend_not_configured" };
   }
 
+  const confirmationState = await getPaymentConfirmationState(order.id);
+  const buyerAlreadySent = Boolean(confirmationState?.buyer_confirmation_sent_at || order.buyer_confirmation_sent_at);
+  const ownerAlreadySent = Boolean(confirmationState?.owner_confirmation_sent_at || order.owner_confirmation_sent_at);
+  if (buyerAlreadySent && ownerAlreadySent) {
+    sentKeys.add(dedupeKey);
+    return { sent: false, reason: "already_sent_in_process" };
+  }
+
   const buyer = buyerEmail(order, siteUrl);
   const owner = ownerEmail(order, siteUrl);
   const ics = buildCalendarIcs();
+  let lastEmailId = confirmationState?.owner_confirmation_email_id || confirmationState?.buyer_confirmation_email_id || "";
 
-  const buyerResult = await sendResendEmail({
-    from: env.EMAIL_FROM,
-    to: order.email,
-    replyTo: env.EMAIL_REPLY_TO,
-    subject: "Pago confirmado · Hair Transplant Workshop 2026",
-    html: buyer.html,
-    text: buyer.text,
-    attachments: [
-      {
-        filename: "hair-transplant-workshop-2026.ics",
-        content: Buffer.from(ics).toString("base64")
-      }
-    ]
-  });
-  if (!buyerResult.sent) return buyerResult;
+  if (!buyerAlreadySent) {
+    const buyerResult = await sendResendEmail({
+      from: env.EMAIL_FROM,
+      to: order.email,
+      replyTo: env.EMAIL_REPLY_TO,
+      subject: "Pago confirmado · Hair Transplant Workshop 2026",
+      html: buyer.html,
+      text: buyer.text,
+      attachments: [
+        {
+          filename: "hair-transplant-workshop-2026.ics",
+          content: Buffer.from(ics).toString("base64")
+        }
+      ]
+    });
+    if (!buyerResult.sent) return buyerResult;
+    lastEmailId = buyerResult.emailId;
+    await markPaymentConfirmationSent(order.id, {
+      buyer_confirmation_sent_at: new Date().toISOString(),
+      buyer_confirmation_email_id: buyerResult.emailId
+    });
+  }
 
-  const ownerResult = await sendResendEmail({
-    from: env.EMAIL_FROM,
-    to: env.YOANNA_NOTIFICATION_EMAIL,
-    replyTo: env.EMAIL_REPLY_TO,
-    subject: `[PILULA] Nuevo pago confirmado · ${order.profile_type === "patient" ? "Paciente" : "Médico"}`,
-    html: owner.html,
-    text: owner.text
-  });
-  if (!ownerResult.sent) return ownerResult;
+  if (!ownerAlreadySent) {
+    const ownerResult = await sendResendEmail({
+      from: env.EMAIL_FROM,
+      to: env.YOANNA_NOTIFICATION_EMAIL,
+      replyTo: env.EMAIL_REPLY_TO,
+      subject: `[PILULA] Nuevo pago confirmado · ${order.profile_type === "patient" ? "Paciente" : "Médico"}`,
+      html: owner.html,
+      text: owner.text
+    });
+    if (!ownerResult.sent) return ownerResult;
+    lastEmailId = ownerResult.emailId;
+    await markPaymentConfirmationSent(order.id, {
+      owner_confirmation_sent_at: new Date().toISOString(),
+      owner_confirmation_email_id: ownerResult.emailId
+    });
+  }
 
   sentKeys.add(dedupeKey);
-  return ownerResult;
+  return { sent: true, emailId: lastEmailId || "already-sent" };
 }
 
 export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string): Promise<EmailSendResult> {
