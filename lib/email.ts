@@ -13,6 +13,14 @@ type EmailSendResult =
   | { sent: true; emailId: string }
   | { sent: false; reason: "already_sent_in_process" | "resend_not_configured" | "resend_error" | "missing_email_id" | "instructions_not_available"; errorCode?: string; emailId?: string };
 
+function brandedEmailFrom(configuredFrom: string) {
+  const fallbackAddress = "pagos@pilula.com.mx";
+  const bracketMatch = configuredFrom.match(/<([^>]+)>/u);
+  const bareEmailMatch = configuredFrom.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/iu);
+  const address = bracketMatch?.[1]?.trim() || bareEmailMatch?.[0]?.trim() || fallbackAddress;
+  return `PILULA MedPlanner <${address}>`;
+}
+
 function getResend() {
   const env = getEnv();
   if (!env.RESEND_API_KEY) return null;
@@ -83,6 +91,7 @@ export async function sendResendEmail(payload: ResendPayload): Promise<EmailSend
 
 export async function sendPaymentEmails(order: OrderRecord): Promise<EmailSendResult> {
   const env = getEnv();
+  const from = brandedEmailFrom(env.EMAIL_FROM);
   const siteUrl = env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
   const dedupeKey = `payment:${order.id}`;
 
@@ -109,7 +118,7 @@ export async function sendPaymentEmails(order: OrderRecord): Promise<EmailSendRe
 
   if (!buyerAlreadySent) {
     const buyerResult = await sendResendEmail({
-      from: env.EMAIL_FROM,
+      from,
       to: order.email,
       replyTo: env.EMAIL_REPLY_TO,
       subject: "Pago confirmado · Hair Transplant Workshop 2026",
@@ -132,7 +141,7 @@ export async function sendPaymentEmails(order: OrderRecord): Promise<EmailSendRe
 
   if (!ownerAlreadySent) {
     const ownerResult = await sendResendEmail({
-      from: env.EMAIL_FROM,
+      from,
       to: env.YOANNA_NOTIFICATION_EMAIL,
       replyTo: env.EMAIL_REPLY_TO,
       subject: `[PILULA] Nuevo pago confirmado · ${order.profile_type === "patient" ? "Paciente" : "Médico"}`,
@@ -153,6 +162,7 @@ export async function sendPaymentEmails(order: OrderRecord): Promise<EmailSendRe
 
 export async function sendDepositConfirmationEmail(order: OrderRecord, balanceUrl: string): Promise<EmailSendResult> {
   const env = getEnv();
+  const from = brandedEmailFrom(env.EMAIL_FROM);
   if (!order.email) return { sent: false, reason: "resend_not_configured" };
   const amountPaid = new Intl.NumberFormat(order.currency === "mxn" ? "es-MX" : "en-US", {
     style: "currency",
@@ -166,7 +176,7 @@ export async function sendDepositConfirmationEmail(order: OrderRecord, balanceUr
   }).format((order.amount_remaining || order.balance_amount || 0) / 100);
 
   return sendResendEmail({
-    from: env.EMAIL_FROM,
+    from,
     to: order.email,
     replyTo: env.EMAIL_REPLY_TO,
     subject: "Anticipo confirmado · Hair Transplant Workshop 2026",
@@ -193,6 +203,7 @@ export async function sendDepositConfirmationEmail(order: OrderRecord, balanceUr
 
 export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string): Promise<EmailSendResult> {
   const env = getEnv();
+  const from = brandedEmailFrom(env.EMAIL_FROM);
   const greeting = buildInviteGreeting(invite.full_name);
   const isDeposit = invite.payment_option === "deposit";
   const paymentCopy = isDeposit
@@ -211,7 +222,7 @@ export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string)
     : "";
 
   return sendResendEmail({
-    from: env.EMAIL_FROM,
+    from,
     to: invite.email,
     replyTo: env.EMAIL_REPLY_TO,
     subject: "Tu enlace privado de pago · Hair Transplant Workshop 2026",
@@ -268,9 +279,10 @@ function safeInviteFirstName(fullName: string | null | undefined) {
 
 export async function sendPaymentInviteOtpEmail(input: { email: string; code: string; expiresInMinutes: number }): Promise<EmailSendResult> {
   const env = getEnv();
+  const from = brandedEmailFrom(env.EMAIL_FROM);
 
   return sendResendEmail({
-    from: env.EMAIL_FROM,
+    from,
     to: input.email,
     replyTo: env.EMAIL_REPLY_TO,
     subject: "Código de verificación · PILULA MedPlanner",
@@ -290,9 +302,10 @@ export async function sendPaymentInviteOtpEmail(input: { email: string; code: st
 
 export async function notifyInvoiceRequest(input: { orderReference: string; invoiceEmail: string }): Promise<EmailSendResult> {
   const env = getEnv();
+  const from = brandedEmailFrom(env.EMAIL_FROM);
 
   return sendResendEmail({
-    from: env.EMAIL_FROM,
+    from,
     to: env.ACCOUNTING_NOTIFICATION_EMAIL || env.YOANNA_NOTIFICATION_EMAIL,
     replyTo: env.EMAIL_REPLY_TO,
     subject: "[PILULA] Nueva solicitud de factura",
@@ -303,8 +316,9 @@ export async function notifyInvoiceRequest(input: { orderReference: string; invo
 
 export async function notifyManualReview(input: { orderReference: string; reason: string }): Promise<EmailSendResult> {
   const env = getEnv();
+  const from = brandedEmailFrom(env.EMAIL_FROM);
   return sendResendEmail({
-    from: env.EMAIL_FROM,
+    from,
     to: env.YOANNA_NOTIFICATION_EMAIL,
     replyTo: env.EMAIL_REPLY_TO,
     subject: "[PILULA] Pago requiere revisión manual",
@@ -315,11 +329,12 @@ export async function notifyManualReview(input: { orderReference: string; reason
 
 export async function sendBankTransferInstructionsEmail(order: OrderRecord, session: Stripe.Checkout.Session): Promise<EmailSendResult> {
   const env = getEnv();
+  const from = brandedEmailFrom(env.EMAIL_FROM);
   const paymentIntent = typeof session.payment_intent === "string" ? null : session.payment_intent;
   const instructions = paymentIntent?.next_action?.display_bank_transfer_instructions;
   if (!order.email || !instructions) return { sent: false, reason: "instructions_not_available" };
   return sendResendEmail({
-    from: env.EMAIL_FROM,
+    from,
     to: order.email,
     replyTo: env.EMAIL_REPLY_TO,
     subject: "Instrucciones SPEI · Hair Transplant Workshop 2026",
