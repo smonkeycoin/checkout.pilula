@@ -58,36 +58,45 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
     environment: stripeEnvironment,
     livemode: String(stripeEnvironment === "live")
   };
-  const usePriceData = (invite.payment_option || "full") === "deposit" || invite.payment_currency === "mxn" || !invite.stripe_price_id;
+  const useMxnFixedPrice = invite.payment_currency === "mxn";
+  const usePriceData = !useMxnFixedPrice && ((invite.payment_option || "full") === "deposit" || !invite.stripe_price_id);
+  if (useMxnFixedPrice && !invite.stripe_price_id) {
+    throw new Error("MXN_PRICE_ID_MISSING");
+  }
   const chargeAmounts = getCheckoutChargeAmounts(invite.payment_option || "full", {
     amount_subtotal: invite.amount_subtotal,
     amount_tax: invite.amount_tax,
     amount_total: invite.amount_total
   });
-
-  const sessionParams: Stripe.Checkout.SessionCreateParams = {
-    mode: "payment",
-    line_items: [
-      usePriceData
-        ? {
-            price_data: {
-              currency: invite.payment_currency,
-              unit_amount: chargeAmounts.amount_subtotal,
-              product_data: {
-                name: `HTW 2026 · ${plan === "doctor" ? "Médico participante" : "Paciente seleccionado"}`,
-                metadata
-              },
-              tax_behavior: "exclusive"
+  const lineItem: Stripe.Checkout.SessionCreateParams.LineItem =
+    usePriceData
+      ? {
+          price_data: {
+            currency: invite.payment_currency,
+            unit_amount: chargeAmounts.amount_subtotal,
+            product_data: {
+              name: `HTW 2026 · ${plan === "doctor" ? "Médico participante" : "Paciente seleccionado"}`,
+              metadata
             },
-            quantity: 1,
-            tax_rates: [env.STRIPE_TAX_RATE_IVA_16]
+            tax_behavior: "exclusive"
+          },
+          quantity: 1,
+          tax_rates: [env.STRIPE_TAX_RATE_IVA_16]
+        }
+      : useMxnFixedPrice
+        ? {
+            price: invite.stripe_price_id as string,
+            quantity: 1
           }
         : {
             price: invite.stripe_price_id as string,
             quantity: 1,
             tax_rates: [env.STRIPE_TAX_RATE_IVA_16]
-          }
-    ],
+          };
+
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+    mode: "payment",
+    line_items: [lineItem],
     billing_address_collection: "required",
     phone_number_collection: { enabled: true },
     tax_id_collection: { enabled: true },

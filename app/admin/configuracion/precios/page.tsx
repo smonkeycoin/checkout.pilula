@@ -6,7 +6,7 @@ export default function AdminPricingConfigPage() {
   return (
     <>
       <Header />
-      <AdminShell title="Configuración de precios." subtitle="Registra el tipo de cambio comercial USD_MXN_RATE para nuevas invitaciones MXN.">
+      <AdminShell title="Configuración de precios." subtitle="Administra el tipo de cambio fijo USD_MXN_RATE para nuevas invitaciones MXN.">
         <PricingConfigAdmin />
       </AdminShell>
       <Footer />

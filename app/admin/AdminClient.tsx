@@ -860,10 +860,6 @@ export function InvitationsAdmin() {
     if (form.paymentCurrency === "usd" && form.allowedPaymentMethods !== "card") {
       errors.allowedPaymentMethods = "USD solo permite tarjeta.";
     }
-    if (form.paymentCurrency === "mxn" && form.exchangeRate.trim() && !/^\d+(\.\d{1,6})?$/.test(form.exchangeRate.trim())) {
-      errors.exchangeRate = "Usa un tipo de cambio válido, por ejemplo 18.50.";
-    }
-
     setFieldErrors(errors);
     const first = Object.keys(errors)[0];
     if (first) {
@@ -895,7 +891,7 @@ export function InvitationsAdmin() {
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           whatsapp: form.whatsapp.trim(),
-          exchangeRate: form.paymentCurrency === "mxn" ? form.exchangeRate.trim() : "",
+          exchangeRate: "",
           expiresAt: new Date(form.expiresAt).toISOString()
         }
       });
@@ -909,7 +905,6 @@ export function InvitationsAdmin() {
       if (!response.ok || !payload.url) {
         const nextMessage = payload.error || "No se pudo crear la invitación.";
         setMessage(nextMessage);
-        if (payload.code === "INVITE_MXN_RATE_MISSING") setFieldErrors({ exchangeRate: nextMessage });
         return;
       }
       const invite = payload.invite || {};
@@ -993,9 +988,10 @@ export function InvitationsAdmin() {
             <option value="deposit">Aparta con 50%</option>
           </select>
         </InviteField>
-        <InviteField label="Tipo de cambio MXN por USD" hint={form.paymentCurrency === "mxn" ? "Opcional si ya existe una tasa activa en servidor." : "No aplica para USD."} error={fieldErrors.exchangeRate}>
-          <input ref={fieldRef("exchangeRate")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory disabled:opacity-50" inputMode="decimal" disabled={form.paymentCurrency !== "mxn"} value={form.exchangeRate} onChange={(event) => updateForm({ exchangeRate: event.target.value })} />
-        </InviteField>
+        <div className="border border-pilula-gold/10 bg-pilula-black/40 p-3 text-sm text-pilula-ivory/70">
+          <p className="text-pilula-ivory">Tipo de cambio MXN</p>
+          <p>Se toma del valor administrado en Configuración de precios y queda congelado al crear la invitación.</p>
+        </div>
         <InviteField label="Nombre" error={fieldErrors.fullName}>
           <input ref={fieldRef("fullName")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" value={form.fullName} onChange={(event) => updateForm({ fullName: event.target.value })} />
         </InviteField>
@@ -1228,8 +1224,10 @@ export function InvoicesAdmin() {
 export function PricingConfigAdmin() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
+  const [changes, setChanges] = useState<Row[]>([]);
+  const [currentRate, setCurrentRate] = useState<Row | null>(null);
   const [form, setForm] = useState({
-    rate: "",
+    rate: "17.50",
     effectiveFrom: new Date().toISOString().slice(0, 16),
     effectiveUntil: "",
     status: "active"
@@ -1238,7 +1236,13 @@ export function PricingConfigAdmin() {
   const load = useCallback(async () => {
     try {
       const response = await adminFetch("/api/admin/pricing");
-      if (response.ok) setRows(((await response.json()) as { rates: Row[] }).rates || []);
+      if (response.ok) {
+        const payload = (await response.json()) as { rates: Row[]; currentRate?: Row | null; changes?: Row[] };
+        setRows(payload.rates || []);
+        setCurrentRate(payload.currentRate || null);
+        setChanges(payload.changes || []);
+        if (payload.currentRate?.rate) setForm((current) => ({ ...current, rate: String(payload.currentRate?.rate || "17.50") }));
+      }
     } catch (err) {
       if (err instanceof AdminAuthError && err.code === "NO_SESSION") router.replace("/admin/login");
     }
@@ -1263,8 +1267,16 @@ export function PricingConfigAdmin() {
 
   return (
     <div className="space-y-6">
+      <div className="border border-pilula-gold/25 p-4">
+        <p className="text-sm uppercase tracking-[0.18em] text-pilula-gold">Tipo de cambio activo</p>
+        <p className="mt-2 text-2xl font-semibold">{currentRate?.rate ? `${String(currentRate.rate)} MXN/USD` : "17.50 MXN/USD"}</p>
+        <p className="mt-1 text-sm text-pilula-ivory/65">Solo nuevas invitaciones MXN usan este valor. Las invitaciones existentes conservan su monto congelado.</p>
+      </div>
       <form onSubmit={save} className="grid gap-4 border border-pilula-gold/25 p-5 md:grid-cols-2">
-        <input className="min-h-11 bg-pilula-black px-3" placeholder="USD_MXN_RATE" value={form.rate} onChange={(event) => setForm({ ...form, rate: event.target.value })} />
+        <label className="grid gap-2 text-sm text-pilula-ivory/75">
+          Nuevo tipo de cambio
+          <input className="min-h-11 bg-pilula-black px-3" inputMode="decimal" placeholder="17.50" value={form.rate} onChange={(event) => setForm({ ...form, rate: event.target.value })} />
+        </label>
         <input className="min-h-11 bg-pilula-black px-3" type="datetime-local" value={form.effectiveFrom} onChange={(event) => setForm({ ...form, effectiveFrom: event.target.value })} />
         <input className="min-h-11 bg-pilula-black px-3" type="datetime-local" value={form.effectiveUntil} onChange={(event) => setForm({ ...form, effectiveUntil: event.target.value })} />
         <select className="min-h-11 bg-pilula-black px-3" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
@@ -1273,6 +1285,12 @@ export function PricingConfigAdmin() {
         </select>
         <button className="min-h-11 bg-pilula-burgundy px-5 text-sm font-semibold text-white">Guardar tipo de cambio</button>
       </form>
+      {changes.length ? (
+        <div className="space-y-3">
+          <p className="text-sm uppercase tracking-[0.18em] text-pilula-gold">Historial de cambios</p>
+          <DataTable rows={changes} />
+        </div>
+      ) : null}
       <DataTable rows={rows} />
     </div>
   );

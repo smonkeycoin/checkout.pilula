@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "invite:payment": "tsx scripts/create-payment-invite.ts",
-    "stripe:bootstrap": "tsx scripts/bootstrap-stripe.ts"
+    "stripe:bootstrap": "tsx scripts/bootstrap-stripe.ts",
+    "stripe:bootstrap-mxn-live": "tsx scripts/bootstrap-stripe-mxn-live.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

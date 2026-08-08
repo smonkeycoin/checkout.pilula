@@ -1,6 +1,7 @@
 import { PLANS, type PaymentCurrency, type PlanKey } from "@/config/checkout";
 
 const RATE_SCALE = 1_000_000n;
+export const DEFAULT_MXN_FX_RATE = "17.50";
 
 export function parseRateToMicros(rate: string) {
   const normalized = rate.trim();
@@ -41,5 +42,9 @@ export function baseUsdAmounts(plan: PlanKey) {
 export function calculateInviteAmounts(plan: PlanKey, currency: PaymentCurrency, rate?: string | null) {
   if (currency === "usd") return baseUsdAmounts(plan);
   if (!rate) throw new Error("La moneda MXN requiere tipo de cambio");
+  return calculateMxnAmounts(plan, rate);
+}
+
+export function calculateFixedMxnAmounts(plan: PlanKey, rate = DEFAULT_MXN_FX_RATE) {
   return calculateMxnAmounts(plan, rate);
 }

@@ -220,7 +220,7 @@ describe("Payment Link fallback orders", () => {
     ).rejects.toMatchObject({
       name: "OrderSupabaseError",
       code: "PGRST204",
-      operation: "create_order_from_invite"
+      operation: "insert_order"
     });
     expect(OrderSupabaseError).toBeTruthy();
   });

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildInitialOrderFinancials, buildPaidOrderFinancials, getCheckoutChargeAmounts } from "@/lib/order-financials";
 
 type CapturedCheckoutParams = {
-  line_items: Array<{ price_data: { unit_amount: number }; tax_rates?: string[] }>;
+  line_items: Array<{ price_data?: { unit_amount: number }; price?: string; tax_rates?: string[] }>;
   metadata: Record<string, string>;
 };
 
@@ -133,7 +133,7 @@ describe("private invite checkout session", () => {
 
     if (!capturedParams) throw new Error("missing checkout params");
     const params = capturedParams;
-    expect(params.line_items[0].price_data.unit_amount).toBe(300000);
+    expect(params.line_items[0].price_data?.unit_amount).toBe(300000);
     expect(params.line_items[0].tax_rates).toEqual(["txr_test"]);
     expect(params.metadata).toMatchObject({
       payment_option: "deposit",
@@ -141,5 +141,92 @@ describe("private invite checkout session", () => {
       contract_amount_tax: "96000",
       contract_amount_total: "696000"
     });
+  });
+
+  it("usa Price MXN dedicado sin recalcular ni agregar IVA exclusivo", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://pagos.pilula.com.mx");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_123");
+    vi.stubEnv("STRIPE_TAX_RATE_IVA_16", "txr_live");
+    vi.stubEnv("STRIPE_PRICE_DOCTOR", "price_doctor_usd");
+    vi.stubEnv("STRIPE_PRICE_PATIENT", "price_patient_usd");
+
+    let capturedParams: CapturedCheckoutParams | undefined;
+    const create = vi.fn(async (params) => {
+      capturedParams = params as CapturedCheckoutParams;
+      return { id: "cs_mxn", url: "https://checkout.stripe.live" };
+    });
+    vi.doMock("@/lib/stripe/client", () => ({
+      getStripe: () => ({
+        checkout: {
+          sessions: { create }
+        }
+      })
+    }));
+    vi.doMock("@/lib/supabase/admin", () => ({ getSupabaseAdmin: () => null }));
+
+    const { createCheckoutSession } = await import("@/lib/stripe/checkout-session");
+    await createCheckoutSession({
+      plan: "patient",
+      order: {
+        id: "order_mxn",
+        reference: "PILULA-HTW-MXN",
+        profile_type: "patient",
+        status: "created",
+        currency: "mxn",
+        amount_subtotal: 1400000,
+        amount_tax: 224000,
+        amount_total: 1624000,
+        terms_version: "test"
+      },
+      invite: {
+        id: "invite_mxn",
+        token_hash: "hash",
+        profile_type: "patient",
+        status: "approved",
+        market: "mexico",
+        full_name: "Paciente",
+        email: "paciente@example.com",
+        whatsapp: null,
+        payment_currency: "mxn",
+        currency: "mxn",
+        allowed_payment_methods: "card",
+        recommended_payment_method: "card",
+        payment_option: "full",
+        stripe_price_id: "price_patient_mxn_full",
+        exchange_rate_mxn_per_usd: "17.50",
+        exchange_rate_source: "PILULA_MANAGED_FIXED",
+        exchange_rate_locked_at: "2026-08-07T12:00:00.000Z",
+        fx_rate_locked: "17.50",
+        fx_locked_at: "2026-08-07T12:00:00.000Z",
+        base_currency: "USD",
+        charge_currency: "mxn",
+        total_amount_mxn: 1624000,
+        base_amount_subtotal_usd: 80000,
+        base_amount_tax_usd: 12800,
+        base_amount_total_usd: 92800,
+        amount_subtotal: 1400000,
+        amount_tax: 224000,
+        amount_total: 1624000,
+        amount_received: 0,
+        amount_remaining: 1624000,
+        expires_at: "2026-08-14T12:00:00.000Z",
+        approved_at: "2026-08-07T12:00:00.000Z",
+        opened_at: null,
+        used_at: null,
+        revoked_at: null,
+        terms_version: "2026-01",
+        terms_hash: "hash",
+        cancellation_policy_version: "2026-01"
+      },
+      paymentMethod: "card"
+    });
+
+    expect(capturedParams?.line_items[0]).toMatchObject({
+      price: "price_patient_mxn_full",
+      quantity: 1
+    });
+    expect(capturedParams?.line_items[0].price_data).toBeUndefined();
+    expect(capturedParams?.line_items[0].tax_rates).toBeUndefined();
   });
 });

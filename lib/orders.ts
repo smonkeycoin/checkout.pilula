@@ -45,6 +45,11 @@ export type OrderRecord = {
   exchange_rate_mxn_per_usd?: string | null;
   exchange_rate_source?: string | null;
   exchange_rate_locked_at?: string | null;
+  fx_rate_locked?: string | null;
+  fx_locked_at?: string | null;
+  base_currency?: string | null;
+  charge_currency?: string | null;
+  total_amount_mxn?: number | null;
   payment_expires_at?: string | null;
   invoice_requested?: boolean;
   terms_version: string;
@@ -95,6 +100,25 @@ export class OrderSupabaseError extends Error {
     this.details = error.details;
     this.hint = error.hint;
   }
+}
+
+function missingColumn(error: { code?: string; message?: string }) {
+  if (error.code !== "PGRST204") return null;
+  return error.message?.match(/'([^']+)' column/u)?.[1] || null;
+}
+
+async function insertOrderWithSchemaFallback(row: Record<string, unknown>) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return row;
+  const next = { ...row };
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await supabase.from("pilula_orders").insert(next).select("*").single();
+    if (!error) return data;
+    const column = missingColumn(error);
+    if (!column || !(column in next)) throw new OrderSupabaseError("insert_order", error);
+    delete next[column];
+  }
+  throw new Error("No se pudo crear la orden por incompatibilidad de esquema.");
 }
 
 const LIVE_PAYMENT_LINKS: Record<string, PaymentLinkResolution> = {
@@ -192,6 +216,11 @@ export async function createOrderFromInvite(input: {
     exchange_rate_mxn_per_usd: input.invite.exchange_rate_mxn_per_usd,
     exchange_rate_source: input.invite.exchange_rate_source,
     exchange_rate_locked_at: input.invite.exchange_rate_locked_at,
+    fx_rate_locked: input.invite.fx_rate_locked || input.invite.exchange_rate_mxn_per_usd,
+    fx_locked_at: input.invite.fx_locked_at || input.invite.exchange_rate_locked_at,
+    base_currency: input.invite.base_currency || "USD",
+    charge_currency: input.invite.charge_currency || input.invite.payment_currency,
+    total_amount_mxn: input.invite.payment_currency === "mxn" ? input.invite.total_amount_mxn || input.invite.amount_total : null,
     payment_expires_at: input.invite.expires_at,
     terms_version: input.invite.terms_version,
     terms_hash: input.invite.terms_hash,
@@ -207,8 +236,7 @@ export async function createOrderFromInvite(input: {
     return order;
   }
 
-  const { data, error } = await supabase.from("pilula_orders").insert(order).select("*").single();
-  if (error) throw new OrderSupabaseError("create_order_from_invite", error);
+  const data = await insertOrderWithSchemaFallback(order as Record<string, unknown>);
   return data as OrderRecord;
 }
 

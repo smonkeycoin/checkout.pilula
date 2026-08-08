@@ -37,6 +37,11 @@ export type PaymentInvite = {
   exchange_rate_mxn_per_usd: string | null;
   exchange_rate_source: string | null;
   exchange_rate_locked_at: string | null;
+  fx_rate_locked?: string | null;
+  fx_locked_at?: string | null;
+  base_currency?: string | null;
+  charge_currency?: PaymentCurrency | null;
+  total_amount_mxn?: number | null;
   base_amount_subtotal_usd: number;
   base_amount_tax_usd: number;
   base_amount_total_usd: number;
@@ -66,20 +71,36 @@ export function getPlanPriceIdForInvite(profileType: PlanKey) {
   return profileType === "doctor" ? env.STRIPE_PRICE_DOCTOR : env.STRIPE_PRICE_PATIENT;
 }
 
+export function getMxnPriceIdForInvite(profileType: PlanKey, paymentOption: PaymentOption = "full") {
+  const env = getEnv();
+  if (profileType === "doctor") {
+    return paymentOption === "deposit" ? env.STRIPE_PRICE_DOCTOR_MXN_DEPOSIT : env.STRIPE_PRICE_DOCTOR_MXN_FULL;
+  }
+  return paymentOption === "deposit" ? env.STRIPE_PRICE_PATIENT_MXN_DEPOSIT : env.STRIPE_PRICE_PATIENT_MXN_FULL;
+}
+
 export async function getActiveExchangeRate() {
   const supabase = getSupabaseAdmin();
-  if (!supabase) return null;
+  const env = getEnv();
+  if (!supabase) {
+    return { rate: env.PILULA_MXN_FX_RATE, source: "PILULA_MANAGED_FIXED", effective_until: null };
+  }
   const now = new Date().toISOString();
   const { data } = await supabase
     .from("exchange_rates")
     .select("*")
     .eq("status", "active")
+    .eq("source", "PILULA_MANAGED_FIXED")
     .lte("effective_from", now)
     .or(`effective_until.is.null,effective_until.gte.${now}`)
     .order("effective_from", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return data as { rate: string; source: string | null; effective_until: string | null } | null;
+  return (data as { rate: string; source: string | null; effective_until: string | null } | null) || {
+    rate: env.PILULA_MXN_FX_RATE,
+    source: "PILULA_MANAGED_FIXED",
+    effective_until: null
+  };
 }
 
 export async function buildInviteDefaults(input: {
@@ -99,9 +120,18 @@ export async function buildInviteDefaults(input: {
   }
   const plan = PLANS[input.profileType];
   const activeRate = input.paymentCurrency === "mxn" ? await getActiveExchangeRate() : null;
-  const rate = input.paymentCurrency === "mxn" ? input.exchangeRate || activeRate?.rate || null : null;
-  const source = input.paymentCurrency === "mxn" ? input.exchangeRateSource || activeRate?.source || "PILULA" : null;
+  const rate = input.paymentCurrency === "mxn" ? activeRate?.rate || null : null;
+  const source = input.paymentCurrency === "mxn" ? activeRate?.source || "PILULA_MANAGED_FIXED" : null;
   const amounts = calculateInviteAmounts(input.profileType, input.paymentCurrency, rate);
+  const fxLockedAt = input.paymentCurrency === "mxn" ? new Date().toISOString() : null;
+  const paymentOption = input.paymentOption || "full";
+  const stripePriceId =
+    input.paymentCurrency === "mxn"
+      ? getMxnPriceIdForInvite(input.profileType, paymentOption)
+      : getPlanPriceIdForInvite(input.profileType);
+  if (input.paymentCurrency === "mxn" && getStripeEnvironment() === "live" && !stripePriceId.startsWith("price_")) {
+    throw new Error("No hay Price ID MXN LIVE configurado para esta modalidad.");
+  }
   const recommended: PaymentMethod =
     input.allowedPaymentMethods === "bank_transfer"
       ? "bank_transfer"
@@ -116,11 +146,16 @@ export async function buildInviteDefaults(input: {
     currency: input.paymentCurrency,
     allowed_payment_methods: input.allowedPaymentMethods,
     recommended_payment_method: recommended,
-    payment_option: input.paymentOption || "full",
-    stripe_price_id: input.paymentCurrency === "usd" ? getPlanPriceIdForInvite(input.profileType) : null,
+    payment_option: paymentOption,
+    stripe_price_id: stripePriceId,
     exchange_rate_mxn_per_usd: rate,
     exchange_rate_source: source,
-    exchange_rate_locked_at: input.paymentCurrency === "mxn" ? new Date().toISOString() : null,
+    exchange_rate_locked_at: fxLockedAt,
+    fx_rate_locked: rate,
+    fx_locked_at: fxLockedAt,
+    base_currency: "USD",
+    charge_currency: input.paymentCurrency,
+    total_amount_mxn: input.paymentCurrency === "mxn" ? amounts.amount_total : null,
     base_amount_subtotal_usd: plan.subtotal,
     base_amount_tax_usd: plan.tax,
     base_amount_total_usd: plan.total,
@@ -133,6 +168,25 @@ export async function buildInviteDefaults(input: {
     terms_hash: termsHash(),
     cancellation_policy_version: CANCELLATION_POLICY_VERSION
   };
+}
+
+function missingColumn(error: { code?: string; message?: string }) {
+  if (error.code !== "PGRST204") return null;
+  return error.message?.match(/'([^']+)' column/u)?.[1] || null;
+}
+
+async function insertInviteWithSchemaFallback(row: Record<string, unknown>) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) throw new Error("Supabase no esta configurado");
+  const next = { ...row };
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { data, error } = await supabase.from("payment_invites").insert(next).select("*").single();
+    if (!error) return data;
+    const column = missingColumn(error);
+    if (!column || !(column in next)) throw new PaymentInviteSupabaseError(error);
+    delete next[column];
+  }
+  throw new Error("No se pudo crear la invitacion por incompatibilidad de esquema.");
 }
 
 export function createInviteToken() {
@@ -165,9 +219,7 @@ export async function createPaymentInvite(input: {
     input.expiresAt || new Date(Date.now() + env.PATIENT_INVITE_TTL_HOURS * 60 * 60 * 1000);
   const defaults = await buildInviteDefaults(input);
 
-  const { data, error } = await supabase
-    .from("payment_invites")
-    .insert({
+  const data = await insertInviteWithSchemaFallback({
       id: crypto.randomUUID(),
       token_hash: tokenHash,
       profile_type: input.profileType,
@@ -181,13 +233,15 @@ export async function createPaymentInvite(input: {
       expires_at: expiresAt.toISOString(),
       approved_at: input.approved ? new Date().toISOString() : null,
       metadata: {
-        created_by: input.createdBy || "system"
+        created_by: input.createdBy || "system",
+        fx_rate_locked: defaults.fx_rate_locked,
+        fx_locked_at: defaults.fx_locked_at,
+        base_currency: defaults.base_currency,
+        charge_currency: defaults.charge_currency,
+        total_amount_mxn: defaults.total_amount_mxn
       }
     })
-    .select("*")
-    .single();
-
-  if (error) throw new PaymentInviteSupabaseError(error);
+  ;
   return { invite: data as PaymentInvite, token };
 }
 

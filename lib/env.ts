@@ -13,7 +13,12 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
   STRIPE_PRICE_DOCTOR: z.string().optional().default(""),
   STRIPE_PRICE_PATIENT: z.string().optional().default(""),
+  STRIPE_PRICE_DOCTOR_MXN_FULL: z.string().optional().default(""),
+  STRIPE_PRICE_DOCTOR_MXN_DEPOSIT: z.string().optional().default(""),
+  STRIPE_PRICE_PATIENT_MXN_FULL: z.string().optional().default(""),
+  STRIPE_PRICE_PATIENT_MXN_DEPOSIT: z.string().optional().default(""),
   STRIPE_TAX_RATE_IVA_16: z.string().optional().default(""),
+  PILULA_MXN_FX_RATE: z.string().default("17.50"),
   SUPABASE_URL: z.string().optional().default(""),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
   RESEND_API_KEY: z.string().optional().default(""),
@@ -112,6 +117,12 @@ export function assertPaymentRuntimeReady(options: { requireWebhookSecret?: bool
 
   assertStripeId("STRIPE_PRICE_DOCTOR", env.STRIPE_PRICE_DOCTOR, "price_");
   assertStripeId("STRIPE_PRICE_PATIENT", env.STRIPE_PRICE_PATIENT, "price_");
+  if (stripeEnvironment === "live") {
+    assertStripeId("STRIPE_PRICE_DOCTOR_MXN_FULL", env.STRIPE_PRICE_DOCTOR_MXN_FULL, "price_");
+    assertStripeId("STRIPE_PRICE_DOCTOR_MXN_DEPOSIT", env.STRIPE_PRICE_DOCTOR_MXN_DEPOSIT, "price_");
+    assertStripeId("STRIPE_PRICE_PATIENT_MXN_FULL", env.STRIPE_PRICE_PATIENT_MXN_FULL, "price_");
+    assertStripeId("STRIPE_PRICE_PATIENT_MXN_DEPOSIT", env.STRIPE_PRICE_PATIENT_MXN_DEPOSIT, "price_");
+  }
   assertStripeId("STRIPE_TAX_RATE_IVA_16", env.STRIPE_TAX_RATE_IVA_16, "txr_");
 
   if (options.requireWebhookSecret) {

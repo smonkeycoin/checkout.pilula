@@ -230,7 +230,7 @@ describe("admin components", () => {
     ]);
   });
 
-  it("muestra error de API y marca tipo de cambio", async () => {
+  it("muestra error de API de tipo de cambio", async () => {
     mockInviteRequests([
       new Response(JSON.stringify({ error: "Falta la tasa MXN para crear la invitación.", code: "INVITE_MXN_RATE_MISSING" }), { status: 400 })
     ]);
@@ -241,7 +241,7 @@ describe("admin components", () => {
     fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "yoanna@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Crear invitación" }));
 
-    expect(await screen.findAllByText("Falta la tasa MXN para crear la invitación.")).toHaveLength(2);
+    expect(await screen.findByText("Falta la tasa MXN para crear la invitación.")).toBeInTheDocument();
   });
 
   it("conserva link cuando Resend falla", async () => {
