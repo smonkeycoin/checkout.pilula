@@ -146,3 +146,66 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
   }
   return session;
 }
+
+export async function createBalanceCheckoutSession(order: OrderRecord, publicToken: string) {
+  const env = getEnv();
+  const stripe = getStripe();
+  const stripeEnvironment = getStripeEnvironment(env.STRIPE_SECRET_KEY) || "test";
+  const siteUrl = env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
+  const amountDue = order.amount_remaining || order.balance_amount || 0;
+  const metadata = {
+    event: EVENT.eventMetadata,
+    edition: EVENT.editionMetadata,
+    profile_type: order.profile_type,
+    order_id: order.id,
+    source: "checkout_pilula_balance",
+    payment_type: "balance",
+    payment_option: "balance",
+    environment: stripeEnvironment,
+    livemode: String(stripeEnvironment === "live")
+  };
+
+  return stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: order.currency,
+            unit_amount: amountDue,
+            product_data: {
+              name: `HTW 2026 · Saldo ${order.profile_type === "doctor" ? "médico participante" : "paciente seleccionado"}`,
+              metadata
+            },
+            tax_behavior: "inclusive"
+          },
+          quantity: 1
+        }
+      ],
+      billing_address_collection: "required",
+      phone_number_collection: { enabled: true },
+      tax_id_collection: { enabled: true },
+      locale: "auto",
+      consent_collection: { terms_of_service: "required" },
+      allow_promotion_codes: false,
+      success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl}/pagar-saldo/${publicToken}`,
+      customer_email: order.email || undefined,
+      client_reference_id: order.id,
+      metadata,
+      payment_intent_data: {
+        statement_descriptor_suffix: "HTW2026",
+        metadata
+      },
+      customer_creation: "always",
+      payment_method_options: {
+        card: {
+          request_three_d_secure: "automatic"
+        }
+      }
+    },
+    {
+      idempotencyKey: `balance:${order.id}:${amountDue}`
+    }
+  );
+}

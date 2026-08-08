@@ -151,6 +151,46 @@ export async function sendPaymentEmails(order: OrderRecord): Promise<EmailSendRe
   return { sent: true, emailId: lastEmailId || "already-sent" };
 }
 
+export async function sendDepositConfirmationEmail(order: OrderRecord, balanceUrl: string): Promise<EmailSendResult> {
+  const env = getEnv();
+  if (!order.email) return { sent: false, reason: "resend_not_configured" };
+  const amountPaid = new Intl.NumberFormat(order.currency === "mxn" ? "es-MX" : "en-US", {
+    style: "currency",
+    currency: order.currency.toUpperCase(),
+    currencyDisplay: "code"
+  }).format((order.amount_received || order.deposit_amount || 0) / 100);
+  const amountDue = new Intl.NumberFormat(order.currency === "mxn" ? "es-MX" : "en-US", {
+    style: "currency",
+    currency: order.currency.toUpperCase(),
+    currencyDisplay: "code"
+  }).format((order.amount_remaining || order.balance_amount || 0) / 100);
+
+  return sendResendEmail({
+    from: env.EMAIL_FROM,
+    to: order.email,
+    replyTo: env.EMAIL_REPLY_TO,
+    subject: "Anticipo confirmado · Hair Transplant Workshop 2026",
+    html: `
+      <div style="font-family:Arial,sans-serif;background:#080808;color:#F8F4EA;padding:32px">
+        <div style="max-width:640px;margin:auto;border:1px solid #C4A64A;padding:28px">
+          <p style="color:#C4A64A;letter-spacing:0.08em">PILULA MEDPLANNER</p>
+          <h1>Anticipo confirmado</h1>
+          <p>Recibimos tu anticipo de <strong>${amountPaid}</strong>.</p>
+          <p>Saldo pendiente: <strong>${amountDue}</strong>.</p>
+          <p><a href="${balanceUrl}" style="display:inline-block;background:#660033;color:#FFFFFF;padding:12px 18px;text-decoration:none">Pagar saldo</a></p>
+          <p>Tu orden: ${order.reference}</p>
+        </div>
+      </div>`,
+    text: [
+      "Anticipo confirmado",
+      `Recibimos tu anticipo de ${amountPaid}.`,
+      `Saldo pendiente: ${amountDue}.`,
+      `Pagar saldo: ${balanceUrl}`,
+      `Orden: ${order.reference}`
+    ].join("\n")
+  });
+}
+
 export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string): Promise<EmailSendResult> {
   const env = getEnv();
 

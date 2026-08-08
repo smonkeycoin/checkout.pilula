@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { EnvConfigurationError, assertStripeLivemodeMatchesRuntime, getEnv } from "@/lib/env";
-import { notifyManualReview, sendPaymentEmails } from "@/lib/email";
+import { notifyManualReview, sendDepositConfirmationEmail, sendPaymentEmails } from "@/lib/email";
 import {
+  createOrderFromPaymentLinkSession,
   findAwaitingBankTransferOrder,
   getOrderBySession,
   markOrderPaid,
@@ -78,6 +79,20 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
   if (result.updated) {
     const order = await getOrderBySession(hydrated.id);
     if (order?.status === "paid") await sendPaymentEmails(order);
+    return;
+  }
+
+  const paymentLinkResult = await createOrderFromPaymentLinkSession(hydrated, eventId);
+  if (paymentLinkResult.created && paymentLinkResult.order) {
+    if (paymentLinkResult.order.payment_option === "deposit" && paymentLinkResult.publicToken) {
+      const siteUrl = getEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
+      await sendDepositConfirmationEmail(
+        paymentLinkResult.order,
+        `${siteUrl}/pagar-saldo/${paymentLinkResult.publicToken}`
+      );
+    } else if (paymentLinkResult.order.status === "paid") {
+      await sendPaymentEmails(paymentLinkResult.order);
+    }
   }
 }
 

@@ -51,7 +51,93 @@ export type OrderRecord = {
   buyer_confirmation_email_id?: string | null;
   owner_confirmation_sent_at?: string | null;
   owner_confirmation_email_id?: string | null;
+  payment_option?: "full" | "deposit" | "balance" | string | null;
+  deposit_amount?: number | null;
+  balance_amount?: number | null;
+  deposit_status?: string | null;
+  balance_status?: string | null;
+  deposit_paid_at?: string | null;
+  balance_paid_at?: string | null;
+  reminder_at?: string | null;
+  reminder_sent_at?: string | null;
+  balance_due_at?: string | null;
+  public_token_hash?: string | null;
 };
+
+export type PaymentLinkOrderResolution = {
+  participantType: PlanKey;
+  paymentOption: "full" | "deposit";
+  totalAmount: number;
+  subtotalAmount: number;
+  taxAmount: number;
+  paidAmount: number;
+};
+
+const LIVE_PAYMENT_LINKS: Record<string, PaymentLinkOrderResolution> = {
+  plink_1U1xKiGkqXZguX59hWdHVbuV: {
+    participantType: "doctor",
+    paymentOption: "full",
+    totalAmount: 696000,
+    subtotalAmount: 600000,
+    taxAmount: 96000,
+    paidAmount: 696000
+  },
+  plink_1U1xKjGkqXZguX59fsVHAQTM: {
+    participantType: "doctor",
+    paymentOption: "deposit",
+    totalAmount: 696000,
+    subtotalAmount: 600000,
+    taxAmount: 96000,
+    paidAmount: 348000
+  },
+  plink_1U1xKkGkqXZguX597exX33tg: {
+    participantType: "patient",
+    paymentOption: "full",
+    totalAmount: 92800,
+    subtotalAmount: 80000,
+    taxAmount: 12800,
+    paidAmount: 92800
+  },
+  plink_1U1xKkGkqXZguX59VQ66yTAt: {
+    participantType: "patient",
+    paymentOption: "deposit",
+    totalAmount: 92800,
+    subtotalAmount: 80000,
+    taxAmount: 12800,
+    paidAmount: 46400
+  }
+};
+
+const LIVE_PAYMENT_LINK_PRICES: Record<string, PaymentLinkOrderResolution> = {
+  price_1U1xKfGkqXZguX59serkxpFa: LIVE_PAYMENT_LINKS.plink_1U1xKiGkqXZguX59hWdHVbuV,
+  price_1U1xKgGkqXZguX59rejzNjmi: LIVE_PAYMENT_LINKS.plink_1U1xKjGkqXZguX59fsVHAQTM,
+  price_1U1xKhGkqXZguX597Mehgxun: LIVE_PAYMENT_LINKS.plink_1U1xKkGkqXZguX597exX33tg,
+  price_1U1xKiGkqXZguX59Sznj0gSx: LIVE_PAYMENT_LINKS.plink_1U1xKkGkqXZguX59VQ66yTAt
+};
+
+function hashPublicToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+export function createPublicOrderToken() {
+  return crypto.randomBytes(24).toString("base64url");
+}
+
+export function resolvePaymentLinkOrder(session: Stripe.Checkout.Session) {
+  const paymentLink = typeof session.payment_link === "string" ? session.payment_link : session.payment_link?.id;
+  if (paymentLink && LIVE_PAYMENT_LINKS[paymentLink]) return LIVE_PAYMENT_LINKS[paymentLink];
+
+  const metadata = session.metadata || {};
+  const participantType = metadata.participant_type === "doctor" || metadata.profile_type === "doctor" ? "doctor" : metadata.participant_type === "patient" || metadata.profile_type === "patient" ? "patient" : null;
+  const paymentOption = metadata.payment_type === "deposit" ? "deposit" : metadata.payment_type === "full" ? "full" : null;
+  if (session.livemode && metadata.app === "pilula" && metadata.environment === "live" && participantType && paymentOption) {
+    const key = Object.values(LIVE_PAYMENT_LINKS).find((candidate) => candidate.participantType === participantType && candidate.paymentOption === paymentOption);
+    if (key) return key;
+  }
+
+  const priceId = session.metadata?.price_id;
+  return priceId ? LIVE_PAYMENT_LINK_PRICES[priceId] || null : null;
+}
 
 export function createOrderReference() {
   const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -192,6 +278,37 @@ export async function markOrderPaid(session: Stripe.Checkout.Session, eventId?: 
   const paymentIntent =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
 
+  if (session.metadata?.payment_type === "balance") {
+    const { data: current, error: currentError } = await supabase.from("pilula_orders").select("*").eq("id", orderId).maybeSingle();
+    if (currentError) throw new Error("No se pudo consultar la orden de saldo");
+    const order = current as OrderRecord | null;
+    if (!order) return { updated: false, reason: "order_not_found" };
+    const balancePaid = session.amount_total || order.amount_remaining || 0;
+    const totalReceived = Math.min((order.amount_received || 0) + balancePaid, order.amount_total);
+    const { error } = await supabase
+      .from("pilula_orders")
+      .update({
+        status: "paid",
+        stripe_checkout_session_id: session.id,
+        stripe_payment_intent_id: paymentIntent,
+        stripe_customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
+        stripe_event_id: eventId || undefined,
+        environment: session.livemode ? "live" : "test",
+        livemode: session.livemode,
+        ...stripeFields,
+        amount_received: totalReceived,
+        amount_remaining: 0,
+        balance_status: "paid",
+        balance_paid_at: new Date().toISOString(),
+        paid_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", orderId)
+      .neq("status", "paid");
+    if (error) throw new Error("No se pudo marcar el saldo como pagado");
+    return { updated: true };
+  }
+
   const { error } = await supabase
     .from("pilula_orders")
     .update({
@@ -222,6 +339,99 @@ export async function markOrderPaid(session: Stripe.Checkout.Session, eventId?: 
   }
 
   return { updated: true };
+}
+
+export async function createOrderFromPaymentLinkSession(session: Stripe.Checkout.Session, eventId: string) {
+  if (session.payment_status !== "paid") return { order: null, publicToken: null, created: false, reason: "payment_status_not_paid" };
+  const resolution = resolvePaymentLinkOrder(session);
+  if (!resolution) return { order: null, publicToken: null, created: false, reason: "payment_link_not_recognized" };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { order: null, publicToken: null, created: false, reason: "supabase_not_configured" };
+
+  const existing = await getOrderBySession(session.id);
+  if (existing) return { order: existing, publicToken: null, created: false, reason: "order_exists" };
+
+  const stripeFields = extractStripeFields(session);
+  const paymentIntent =
+    typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
+  const paidAt = new Date();
+  const publicToken = resolution.paymentOption === "deposit" ? createPublicOrderToken() : null;
+  const balanceAmount = Math.max(resolution.totalAmount - resolution.paidAmount, 0);
+  const order: OrderRecord = {
+    id: crypto.randomUUID(),
+    reference: createOrderReference(),
+    profile_type: resolution.participantType,
+    status: resolution.paymentOption === "deposit" ? "partial" : "paid",
+    stripe_checkout_session_id: session.id,
+    stripe_payment_intent_id: paymentIntent,
+    stripe_customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
+    stripe_event_id: eventId,
+    environment: session.livemode ? "live" : "test",
+    livemode: session.livemode,
+    ...stripeFields,
+    currency: (session.currency || "usd") as PaymentCurrency,
+    payment_method: "card",
+    amount_subtotal: resolution.subtotalAmount,
+    amount_tax: resolution.taxAmount,
+    amount_total: resolution.totalAmount,
+    amount_received: resolution.paidAmount,
+    amount_remaining: balanceAmount,
+    terms_version: session.consent?.terms_of_service === "accepted" ? "stripe_payment_link" : "external_payment_link",
+    cancellation_policy_version: "stripe_payment_link",
+    terms_accepted_at: paidAt.toISOString(),
+    user_agent: "stripe_payment_link",
+    metadata: {
+      source: "stripe_payment_link",
+      payment_link: typeof session.payment_link === "string" ? session.payment_link : session.payment_link?.id || null
+    },
+    paid_at: resolution.paymentOption === "full" ? paidAt.toISOString() : null,
+    payment_option: resolution.paymentOption,
+    deposit_amount: resolution.paymentOption === "deposit" ? resolution.paidAmount : null,
+    balance_amount: resolution.paymentOption === "deposit" ? balanceAmount : 0,
+    deposit_status: resolution.paymentOption === "deposit" ? "paid" : "not_applicable",
+    balance_status: resolution.paymentOption === "deposit" ? "pending" : "not_applicable",
+    deposit_paid_at: resolution.paymentOption === "deposit" ? paidAt.toISOString() : null,
+    reminder_at: resolution.paymentOption === "deposit" ? new Date(paidAt.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
+    balance_due_at: resolution.paymentOption === "deposit" ? new Date(paidAt.getTime() + 45 * 24 * 60 * 60 * 1000).toISOString() : null,
+    public_token_hash: publicToken ? hashPublicToken(publicToken) : null
+  };
+
+  const { data, error } = await supabase.from("pilula_orders").insert(order).select("*").single();
+  if (error?.code === "23505") {
+    const duplicate = await getOrderBySession(session.id);
+    return { order: duplicate, publicToken: null, created: false, reason: "duplicate_session" };
+  }
+  if (error) throw new Error("No se pudo crear la orden desde Payment Link");
+  return { order: data as OrderRecord, publicToken, created: true };
+}
+
+export async function getOrderByPublicToken(token: string) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+  const { data } = await supabase
+    .from("pilula_orders")
+    .select("*")
+    .eq("public_token_hash", hashPublicToken(token))
+    .maybeSingle();
+  return (data as OrderRecord | null) || null;
+}
+
+export async function markBalanceCheckoutOpen(orderId: string, session: Stripe.Checkout.Session) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return;
+  await supabase
+    .from("pilula_orders")
+    .update({
+      stripe_checkout_session_id: session.id,
+      stripe_customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
+      environment: session.livemode ? "live" : "test",
+      livemode: session.livemode,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", orderId)
+    .eq("payment_option", "deposit")
+    .eq("balance_status", "pending");
 }
 
 export async function markOrderPaidFromPaymentIntent(paymentIntent: Stripe.PaymentIntent, eventId?: string) {
