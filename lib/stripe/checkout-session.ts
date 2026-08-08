@@ -123,6 +123,7 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
   } else {
     sessionParams.payment_method_types = ["customer_balance"];
     sessionParams.customer = await ensureStripeCustomer(invite);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
     sessionParams.payment_method_options = {
       customer_balance: {
         funding_type: "bank_transfer",
