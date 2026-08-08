@@ -302,4 +302,32 @@ describe("admin components", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://pagos.pilula.com.mx/pagar/token_123"));
     expect(screen.getByText("Link copiado")).toBeInTheDocument();
   });
+
+  it("formatea fecha de expiración sin ISO crudo en tabla", async () => {
+    mocks.adminFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          invites: [
+            {
+              id: "invite_date",
+              full_name: "Paciente Fecha",
+              email: "fecha@example.com",
+              profile_type: "patient",
+              payment_option: "full",
+              status: "approved",
+              expires_at: "2026-08-15T07:42:00+00:00"
+            }
+          ]
+        }),
+        { status: 200 }
+      )
+    );
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+
+    await waitFor(() => expect(screen.getByText("Paciente Fecha")).toBeInTheDocument());
+    expect(screen.queryByText("2026-08-15T07:42:00+00:00")).not.toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes("2026") && content.includes("ago"))).toBeInTheDocument();
+  });
 });

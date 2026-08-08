@@ -727,6 +727,18 @@ function formatDateTime(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
+function formatShortDateTime(value: string | null | undefined) {
+  if (!value) return "Sin fecha";
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/Mexico_City"
+  }).format(new Date(value));
+}
+
 export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
   const supabase = useSupabase();
   const [email, setEmail] = useState("pilulamedplanner@gmail.com");
@@ -1098,7 +1110,7 @@ function InvitesTable({ rows, onRefresh, onCreatedUrl }: { rows: Row[]; onRefres
               <td className="px-3 py-2">{String(row.profile_type || "")}</td>
               <td className="px-3 py-2">{String(row.payment_option || "full") === "deposit" ? "50%" : "Completo"}</td>
               <td className="px-3 py-2">{String(row.status || "")}</td>
-              <td className="px-3 py-2">{String(row.expires_at || "")}</td>
+              <td className="px-3 py-2">{formatShortDateTime(typeof row.expires_at === "string" ? row.expires_at : null)}</td>
               <td className="flex flex-wrap gap-2 px-3 py-2">
                 <button className="border border-pilula-gold/25 px-2 py-1" onClick={() => action(String(row.id), "approve")}>Aprobar</button>
                 <button className="border border-pilula-gold/25 px-2 py-1" onClick={() => action(String(row.id), "resend")}>Reenviar</button>
