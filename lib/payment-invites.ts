@@ -120,7 +120,7 @@ export async function buildInviteDefaults(input: {
   }
   const plan = PLANS[input.profileType];
   const activeRate = input.paymentCurrency === "mxn" ? await getActiveExchangeRate() : null;
-  const rate = input.paymentCurrency === "mxn" ? activeRate?.rate || null : null;
+  const rate = input.paymentCurrency === "mxn" ? String(activeRate?.rate || "") || null : null;
   const source = input.paymentCurrency === "mxn" ? activeRate?.source || "PILULA_MANAGED_FIXED" : null;
   const amounts = calculateInviteAmounts(input.profileType, input.paymentCurrency, rate);
   const fxLockedAt = input.paymentCurrency === "mxn" ? new Date().toISOString() : null;
