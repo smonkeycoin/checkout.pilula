@@ -193,6 +193,22 @@ export async function sendDepositConfirmationEmail(order: OrderRecord, balanceUr
 
 export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string): Promise<EmailSendResult> {
   const env = getEnv();
+  const greeting = buildInviteGreeting(invite.full_name);
+  const isDeposit = invite.payment_option === "deposit";
+  const paymentCopy = isDeposit
+    ? "Puedes apartar tu lugar pagando el 50% ahora."
+    : "Puedes completar tu inscripción desde tu enlace privado.";
+  const installmentHtml = isDeposit
+    ? `
+          <div style="margin:20px 0;padding:16px;border:1px solid rgba(196,166,74,0.45)">
+            <p style="margin:0 0 8px"><strong>Pago inicial:</strong> 50%</p>
+            <p style="margin:0 0 8px"><strong>Saldo:</strong> 50%</p>
+            <p style="margin:0"><strong>Plazo para liquidar:</strong> 45 días después de tu anticipo</p>
+          </div>`
+    : "";
+  const installmentText = isDeposit
+    ? "\nPago inicial: 50%\nSaldo: 50%\nPlazo para liquidar: 45 días después de tu anticipo"
+    : "";
 
   return sendResendEmail({
     from: env.EMAIL_FROM,
@@ -204,13 +220,50 @@ export async function sendPaymentInviteEmail(invite: PaymentInvite, url: string)
         <div style="max-width:640px;margin:auto;border:1px solid #C4A64A;padding:28px">
           <p style="color:#C4A64A;letter-spacing:0.08em">PILULA MEDPLANNER</p>
           <h1>Enlace privado de pago</h1>
-          <p>${invite.full_name || invite.email}, tu invitación fue aprobada.</p>
+          <p>${greeting}</p>
+          <p>Tu invitación para Hair Transplant Workshop 2026 fue aprobada.</p>
+          <p>${paymentCopy}</p>
+          ${installmentHtml}
           <p><a href="${url}" style="display:inline-block;background:#660033;color:#FFFFFF;padding:12px 18px;text-decoration:none">Abrir enlace privado</a></p>
-          <p>El pago se procesa en Stripe. No compartas este enlace.</p>
+          <p>Este enlace es personal y está asociado a tu invitación.</p>
+          <p>El pago se procesa de forma segura con Stripe. No compartas este enlace.</p>
         </div>
       </div>`,
-    text: `Tu invitación fue aprobada.\nAbre tu enlace privado de pago: ${url}\nEl pago se procesa en Stripe.`
+    text: [
+      greeting,
+      "Tu invitación para Hair Transplant Workshop 2026 fue aprobada.",
+      paymentCopy,
+      installmentText.trim(),
+      `Abrir enlace privado: ${url}`,
+      "Este enlace es personal y está asociado a tu invitación.",
+      "El pago se procesa de forma segura con Stripe. No compartas este enlace."
+    ].filter(Boolean).join("\n")
   });
+}
+
+function buildInviteGreeting(fullName: string | null | undefined) {
+  const firstName = safeInviteFirstName(fullName);
+  return firstName ? `Hola, ${firstName}` : "Hola";
+}
+
+function safeInviteFirstName(fullName: string | null | undefined) {
+  const normalized = (fullName || "").trim().replace(/\s+/g, " ");
+  if (!normalized) return "";
+  const lower = normalized.toLowerCase();
+  const looksInternal =
+    lower.includes("prueba") ||
+    lower.includes("test") ||
+    lower.includes("stripe") ||
+    lower.includes("codex") ||
+    lower.includes("internal") ||
+    lower.includes("desarrollo") ||
+    lower.includes("cleanup") ||
+    /^[a-f0-9-]{8,}$/i.test(normalized) ||
+    /^[-_a-z0-9]{10,}$/i.test(normalized) && /\d/.test(normalized);
+  if (looksInternal) return "";
+  const first = normalized.split(" ")[0]?.replace(/[^\p{L}'-]/gu, "") || "";
+  if (first.length < 2 || first.length > 40) return "";
+  return first.charAt(0).toLocaleUpperCase("es-MX") + first.slice(1).toLocaleLowerCase("es-MX");
 }
 
 export async function sendPaymentInviteOtpEmail(input: { email: string; code: string; expiresInMinutes: number }): Promise<EmailSendResult> {
