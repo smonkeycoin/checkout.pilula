@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   adminFetch: vi.fn(),
   push: vi.fn(),
-  replace: vi.fn()
+  replace: vi.fn(),
+  signInWithOAuth: vi.fn(),
+  signInWithOtp: vi.fn(),
+  signOut: vi.fn(),
+  getSession: vi.fn(async () => ({ data: { session: { access_token: "access_123" } } }))
 }));
 
 vi.mock("@/lib/admin-api-client", () => ({
@@ -22,8 +26,10 @@ vi.mock("@/lib/admin-api-client", () => ({
 vi.mock("@/lib/supabase/browser", () => ({
   createSupabaseBrowserClient: vi.fn(() => ({
     auth: {
-      getSession: vi.fn(async () => ({ data: { session: { access_token: "access_123" } } })),
-      signOut: vi.fn()
+      getSession: mocks.getSession,
+      signInWithOAuth: mocks.signInWithOAuth,
+      signInWithOtp: mocks.signInWithOtp,
+      signOut: mocks.signOut
     }
   }))
 }));
@@ -134,9 +140,37 @@ beforeEach(() => {
   mocks.adminFetch.mockReset();
   mocks.push.mockReset();
   mocks.replace.mockReset();
+  mocks.signInWithOAuth.mockReset();
+  mocks.signInWithOAuth.mockResolvedValue({ error: null });
+  mocks.signInWithOtp.mockReset();
+  mocks.signOut.mockReset();
+  mocks.getSession.mockReset();
+  mocks.getSession.mockResolvedValue({ data: { session: { access_token: "access_123" } } });
 });
 
 describe("admin components", () => {
+  it("login admin usa solo Google OAuth y elimina magic link", async () => {
+    const { AdminLogin } = await import("@/app/admin/AdminClient");
+
+    render(<AdminLogin />);
+
+    expect(screen.getByRole("button", { name: "Continuar con Google" })).toBeInTheDocument();
+    expect(screen.queryByText("Respaldo")).not.toBeInTheDocument();
+    expect(screen.queryByText("Magic link")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enviar magic link" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continuar con Google" }));
+
+    await waitFor(() =>
+      expect(mocks.signInWithOAuth).toHaveBeenCalledWith({
+        provider: "google",
+        options: {
+          redirectTo: "http://localhost:3000/auth/callback"
+        }
+      })
+    );
+    expect(mocks.signInWithOtp).not.toHaveBeenCalled();
+  });
+
   it("dashboard carga con sesión", async () => {
     mocks.adminFetch.mockResolvedValueOnce(new Response(JSON.stringify(dashboardPayload()), { status: 200 }));
     const { DashboardAdmin } = await import("@/app/admin/AdminClient");

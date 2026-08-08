@@ -741,7 +741,6 @@ function formatShortDateTime(value: string | null | undefined) {
 
 export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
   const supabase = useSupabase();
-  const [email, setEmail] = useState("pilulamedplanner@gmail.com");
   const [message, setMessage] = useState(errorMessage || "");
 
   async function continueWithGoogle() {
@@ -758,19 +757,6 @@ export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
     if (error) setMessage("No se pudo iniciar sesión con Google.");
   }
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase) {
-      setMessage("Configura NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY.");
-      return;
-    }
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/admin` }
-    });
-    setMessage(error ? "No se pudo enviar el magic link." : "Revisa tu correo para abrir el panel.");
-  }
-
   return (
     <div className="mt-8 grid max-w-md gap-5">
       <button
@@ -780,15 +766,6 @@ export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
       >
         Continuar con Google
       </button>
-
-      <form onSubmit={submit} className="grid gap-3 border border-pilula-gold/15 p-4">
-        <p className="text-xs uppercase tracking-[0.18em] text-pilula-gold">Respaldo</p>
-        <label className="grid gap-2 text-sm text-pilula-ivory/75">
-          Magic link
-          <input className="min-h-11 border border-pilula-gold/25 bg-pilula-black px-3 text-pilula-ivory" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-        </label>
-        <button className="min-h-11 border border-pilula-gold/30 px-5 text-sm font-semibold text-pilula-ivory" type="submit">Enviar magic link</button>
-      </form>
 
       {message ? <p className="text-sm text-pilula-ivory/75">{message}</p> : null}
     </div>

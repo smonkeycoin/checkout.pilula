@@ -23,7 +23,8 @@ export default async function AdminLoginPage({ searchParams }: AdminLoginPagePro
       <Header />
       <main className="mx-auto max-w-4xl px-5 py-12 lg:px-8">
         <h1 className="text-3xl font-semibold">Acceso administrativo.</h1>
-        <p className="mt-3 text-pilula-ivory/70">Google OAuth con Supabase Auth. Solo los correos autorizados pueden usar APIs del panel.</p>
+        <p className="mt-3 text-pilula-ivory/70">Solo cuentas autorizadas pueden acceder al panel.</p>
+        <p className="mt-2 text-sm text-pilula-ivory/55">Acceso exclusivo para administradores autorizados.</p>
         <AdminLogin errorMessage={errorMessage} />
       </main>
       <Footer />
