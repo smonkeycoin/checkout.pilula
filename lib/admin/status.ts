@@ -12,6 +12,7 @@ export const PENDING_ORDER_STATUSES = new Set([
   "awaiting_payment",
   "awaiting_payment_method",
   "awaiting_bank_transfer",
+  "partial",
   "partially_paid",
   "partially_funded",
   "requires_manual_review"
@@ -33,7 +34,7 @@ export function normalizePaymentStatus(status: string | null | undefined): Payme
   const value = String(status || "").toLowerCase();
   if (PAID_ORDER_STATUSES.has(value)) return "paid";
   if (value === "awaiting_bank_transfer") return "awaiting_bank_transfer";
-  if (value === "partially_funded" || value === "partially_paid") return "partial";
+  if (value === "partial" || value === "partially_funded" || value === "partially_paid") return "partial";
   if (value === "requires_manual_review") return "manual_review";
   if (REFUNDED_ORDER_STATUSES.has(value)) return "refunded";
   if (FAILED_ORDER_STATUSES.has(value)) return "failed";

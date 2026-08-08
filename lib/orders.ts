@@ -1,6 +1,13 @@
 import crypto from "node:crypto";
 import type Stripe from "stripe";
 import { PLANS, type PaymentCurrency, type PaymentMethod, type PlanKey } from "@/config/checkout";
+import {
+  buildBalancePaidFinancials,
+  buildInitialOrderFinancials,
+  buildPaidOrderFinancials,
+  type PaymentLinkResolution,
+  type PaymentOption
+} from "@/lib/order-financials";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSignedInvoiceToken } from "@/lib/security/tokens";
 import { sanitizeText } from "@/lib/security/text";
@@ -30,6 +37,9 @@ export type OrderRecord = {
   amount_subtotal: number;
   amount_tax: number;
   amount_total: number;
+  total_amount?: number | null;
+  amount_paid?: number | null;
+  amount_due?: number | null;
   amount_received?: number;
   amount_remaining?: number;
   exchange_rate_mxn_per_usd?: string | null;
@@ -51,7 +61,7 @@ export type OrderRecord = {
   buyer_confirmation_email_id?: string | null;
   owner_confirmation_sent_at?: string | null;
   owner_confirmation_email_id?: string | null;
-  payment_option?: "full" | "deposit" | "balance" | string | null;
+  payment_option?: PaymentOption | "balance" | string | null;
   deposit_amount?: number | null;
   balance_amount?: number | null;
   deposit_status?: string | null;
@@ -64,51 +74,34 @@ export type OrderRecord = {
   public_token_hash?: string | null;
 };
 
-export type PaymentLinkOrderResolution = {
-  participantType: PlanKey;
-  paymentOption: "full" | "deposit";
-  totalAmount: number;
-  subtotalAmount: number;
-  taxAmount: number;
-  paidAmount: number;
-};
-
-const LIVE_PAYMENT_LINKS: Record<string, PaymentLinkOrderResolution> = {
+const LIVE_PAYMENT_LINKS: Record<string, PaymentLinkResolution> = {
   plink_1U1xKiGkqXZguX59hWdHVbuV: {
     participantType: "doctor",
     paymentOption: "full",
-    totalAmount: 696000,
-    subtotalAmount: 600000,
-    taxAmount: 96000,
-    paidAmount: 696000
+    currency: "usd",
+    amounts: { amount_subtotal: 600000, amount_tax: 96000, amount_total: 696000 }
   },
   plink_1U1xKjGkqXZguX59fsVHAQTM: {
     participantType: "doctor",
     paymentOption: "deposit",
-    totalAmount: 696000,
-    subtotalAmount: 600000,
-    taxAmount: 96000,
-    paidAmount: 348000
+    currency: "usd",
+    amounts: { amount_subtotal: 600000, amount_tax: 96000, amount_total: 696000 }
   },
   plink_1U1xKkGkqXZguX597exX33tg: {
     participantType: "patient",
     paymentOption: "full",
-    totalAmount: 92800,
-    subtotalAmount: 80000,
-    taxAmount: 12800,
-    paidAmount: 92800
+    currency: "usd",
+    amounts: { amount_subtotal: 80000, amount_tax: 12800, amount_total: 92800 }
   },
   plink_1U1xKkGkqXZguX59VQ66yTAt: {
     participantType: "patient",
     paymentOption: "deposit",
-    totalAmount: 92800,
-    subtotalAmount: 80000,
-    taxAmount: 12800,
-    paidAmount: 46400
+    currency: "usd",
+    amounts: { amount_subtotal: 80000, amount_tax: 12800, amount_total: 92800 }
   }
 };
 
-const LIVE_PAYMENT_LINK_PRICES: Record<string, PaymentLinkOrderResolution> = {
+const LIVE_PAYMENT_LINK_PRICES: Record<string, PaymentLinkResolution> = {
   price_1U1xKfGkqXZguX59serkxpFa: LIVE_PAYMENT_LINKS.plink_1U1xKiGkqXZguX59hWdHVbuV,
   price_1U1xKgGkqXZguX59rejzNjmi: LIVE_PAYMENT_LINKS.plink_1U1xKjGkqXZguX59fsVHAQTM,
   price_1U1xKhGkqXZguX597Mehgxun: LIVE_PAYMENT_LINKS.plink_1U1xKkGkqXZguX597exX33tg,
@@ -169,8 +162,11 @@ export async function createOrderFromInvite(input: {
     amount_subtotal: input.invite.amount_subtotal,
     amount_tax: input.invite.amount_tax,
     amount_total: input.invite.amount_total,
-    amount_received: 0,
-    amount_remaining: input.invite.amount_total,
+    ...buildInitialOrderFinancials(input.invite.payment_option || "full", {
+      amount_subtotal: input.invite.amount_subtotal,
+      amount_tax: input.invite.amount_tax,
+      amount_total: input.invite.amount_total
+    }),
     exchange_rate_mxn_per_usd: input.invite.exchange_rate_mxn_per_usd,
     exchange_rate_source: input.invite.exchange_rate_source,
     exchange_rate_locked_at: input.invite.exchange_rate_locked_at,
@@ -277,14 +273,13 @@ export async function markOrderPaid(session: Stripe.Checkout.Session, eventId?: 
   const stripeFields = extractStripeFields(session);
   const paymentIntent =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
+  const { data: current, error: currentError } = await supabase.from("pilula_orders").select("*").eq("id", orderId).maybeSingle();
+  if (currentError) throw new Error("No se pudo consultar la orden");
+  const order = current as OrderRecord | null;
+  if (!order) return { updated: false, reason: "order_not_found" };
 
   if (session.metadata?.payment_type === "balance") {
-    const { data: current, error: currentError } = await supabase.from("pilula_orders").select("*").eq("id", orderId).maybeSingle();
-    if (currentError) throw new Error("No se pudo consultar la orden de saldo");
-    const order = current as OrderRecord | null;
-    if (!order) return { updated: false, reason: "order_not_found" };
     const balancePaid = session.amount_total || order.amount_remaining || 0;
-    const totalReceived = Math.min((order.amount_received || 0) + balancePaid, order.amount_total);
     const { error } = await supabase
       .from("pilula_orders")
       .update({
@@ -296,10 +291,7 @@ export async function markOrderPaid(session: Stripe.Checkout.Session, eventId?: 
         environment: session.livemode ? "live" : "test",
         livemode: session.livemode,
         ...stripeFields,
-        amount_received: totalReceived,
-        amount_remaining: 0,
-        balance_status: "paid",
-        balance_paid_at: new Date().toISOString(),
+        ...buildBalancePaidFinancials(order, balancePaid, new Date()),
         paid_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
@@ -309,10 +301,19 @@ export async function markOrderPaid(session: Stripe.Checkout.Session, eventId?: 
     return { updated: true };
   }
 
+  const paymentOption: PaymentOption = order.payment_option === "deposit" ? "deposit" : "full";
+  const paidAt = new Date();
+  const paidFinancials = buildPaidOrderFinancials(paymentOption, {
+    amount_subtotal: order.amount_subtotal,
+    amount_tax: order.amount_tax,
+    amount_total: order.amount_total
+  }, paidAt);
+  const publicToken = paymentOption === "deposit" && !order.public_token_hash ? createPublicOrderToken() : null;
+
   const { error } = await supabase
     .from("pilula_orders")
     .update({
-      status: "paid",
+      status: paymentOption === "deposit" ? "partial" : "paid",
       stripe_checkout_session_id: session.id,
       stripe_payment_intent_id: paymentIntent,
       stripe_customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id || null,
@@ -320,25 +321,25 @@ export async function markOrderPaid(session: Stripe.Checkout.Session, eventId?: 
       environment: session.livemode ? "live" : "test",
       livemode: session.livemode,
       ...stripeFields,
-      amount_subtotal: session.amount_subtotal ?? undefined,
-      amount_tax: session.total_details?.amount_tax ?? undefined,
-      amount_total: session.amount_total ?? undefined,
-      amount_received: session.amount_total ?? undefined,
-      amount_remaining: 0,
+      amount_subtotal: order.amount_subtotal,
+      amount_tax: order.amount_tax,
+      amount_total: order.amount_total,
+      ...paidFinancials,
       currency: (session.currency || "usd") as PaymentCurrency,
-      paid_at: new Date().toISOString(),
+      paid_at: paymentOption === "deposit" ? null : paidAt.toISOString(),
+      public_token_hash: publicToken ? hashPublicToken(publicToken) : order.public_token_hash,
       updated_at: new Date().toISOString()
     })
     .eq("id", orderId)
-    .neq("status", "paid");
+    .not("status", "in", "(paid,partial)");
 
   if (error) throw new Error("No se pudo marcar la orden como pagada");
 
-  if (session.metadata?.payment_invite_id) {
+  if (paymentOption === "full" && session.metadata?.payment_invite_id) {
     await markPaymentInvitePaid(session.metadata.payment_invite_id);
   }
 
-  return { updated: true };
+  return { updated: true, publicToken };
 }
 
 export async function createOrderFromPaymentLinkSession(session: Stripe.Checkout.Session, eventId: string) {
@@ -357,7 +358,7 @@ export async function createOrderFromPaymentLinkSession(session: Stripe.Checkout
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
   const paidAt = new Date();
   const publicToken = resolution.paymentOption === "deposit" ? createPublicOrderToken() : null;
-  const balanceAmount = Math.max(resolution.totalAmount - resolution.paidAmount, 0);
+  const paidFinancials = buildPaidOrderFinancials(resolution.paymentOption, resolution.amounts, paidAt);
   const order: OrderRecord = {
     id: crypto.randomUUID(),
     reference: createOrderReference(),
@@ -370,13 +371,12 @@ export async function createOrderFromPaymentLinkSession(session: Stripe.Checkout
     environment: session.livemode ? "live" : "test",
     livemode: session.livemode,
     ...stripeFields,
-    currency: (session.currency || "usd") as PaymentCurrency,
+    currency: (session.currency || resolution.currency) as PaymentCurrency,
     payment_method: "card",
-    amount_subtotal: resolution.subtotalAmount,
-    amount_tax: resolution.taxAmount,
-    amount_total: resolution.totalAmount,
-    amount_received: resolution.paidAmount,
-    amount_remaining: balanceAmount,
+    amount_subtotal: resolution.amounts.amount_subtotal,
+    amount_tax: resolution.amounts.amount_tax,
+    amount_total: resolution.amounts.amount_total,
+    ...paidFinancials,
     terms_version: session.consent?.terms_of_service === "accepted" ? "stripe_payment_link" : "external_payment_link",
     cancellation_policy_version: "stripe_payment_link",
     terms_accepted_at: paidAt.toISOString(),
@@ -386,14 +386,6 @@ export async function createOrderFromPaymentLinkSession(session: Stripe.Checkout
       payment_link: typeof session.payment_link === "string" ? session.payment_link : session.payment_link?.id || null
     },
     paid_at: resolution.paymentOption === "full" ? paidAt.toISOString() : null,
-    payment_option: resolution.paymentOption,
-    deposit_amount: resolution.paymentOption === "deposit" ? resolution.paidAmount : null,
-    balance_amount: resolution.paymentOption === "deposit" ? balanceAmount : 0,
-    deposit_status: resolution.paymentOption === "deposit" ? "paid" : "not_applicable",
-    balance_status: resolution.paymentOption === "deposit" ? "pending" : "not_applicable",
-    deposit_paid_at: resolution.paymentOption === "deposit" ? paidAt.toISOString() : null,
-    reminder_at: resolution.paymentOption === "deposit" ? new Date(paidAt.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString() : null,
-    balance_due_at: resolution.paymentOption === "deposit" ? new Date(paidAt.getTime() + 45 * 24 * 60 * 60 * 1000).toISOString() : null,
     public_token_hash: publicToken ? hashPublicToken(publicToken) : null
   };
 

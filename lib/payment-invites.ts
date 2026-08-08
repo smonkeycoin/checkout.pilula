@@ -12,6 +12,7 @@ import { getEnv, getStripeEnvironment, type StripeEnvironment } from "@/lib/env"
 import { calculateInviteAmounts } from "@/lib/money";
 import { canCheckoutInvite } from "@/lib/checkout-guard";
 import { PaymentInviteSupabaseError } from "@/lib/admin-invite-errors";
+import type { PaymentOption } from "@/lib/order-financials";
 import { sanitizeText } from "@/lib/security/text";
 import { createOpaqueToken, hashToken } from "@/lib/security/tokens";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -31,6 +32,7 @@ export type PaymentInvite = {
   currency: PaymentCurrency;
   allowed_payment_methods: AllowedPaymentMethods;
   recommended_payment_method: PaymentMethod;
+  payment_option?: PaymentOption | null;
   stripe_price_id: string | null;
   exchange_rate_mxn_per_usd: string | null;
   exchange_rate_source: string | null;
@@ -85,6 +87,7 @@ export async function buildInviteDefaults(input: {
   market: Market;
   paymentCurrency: PaymentCurrency;
   allowedPaymentMethods: AllowedPaymentMethods;
+  paymentOption?: PaymentOption;
   exchangeRate?: string | null;
   exchangeRateSource?: string | null;
 }) {
@@ -113,6 +116,7 @@ export async function buildInviteDefaults(input: {
     currency: input.paymentCurrency,
     allowed_payment_methods: input.allowedPaymentMethods,
     recommended_payment_method: recommended,
+    payment_option: input.paymentOption || "full",
     stripe_price_id: input.paymentCurrency === "usd" ? getPlanPriceIdForInvite(input.profileType) : null,
     exchange_rate_mxn_per_usd: rate,
     exchange_rate_source: source,
@@ -141,6 +145,7 @@ export async function createPaymentInvite(input: {
   market: Market;
   paymentCurrency: PaymentCurrency;
   allowedPaymentMethods: AllowedPaymentMethods;
+  paymentOption?: PaymentOption;
   exchangeRate?: string | null;
   exchangeRateSource?: string | null;
   email: string;

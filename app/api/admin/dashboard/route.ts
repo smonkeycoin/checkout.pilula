@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   let ordersQuery = supabase
     .from("pilula_orders")
     .select(
-      "id,reference,profile_type,status,stripe_checkout_session_id,stripe_payment_intent_id,stripe_customer_id,environment,livemode,is_internal_test,excluded_from_kpis,payment_option,deposit_amount,balance_amount,deposit_status,balance_status,full_name,email,phone,currency,payment_method,amount_subtotal,amount_tax,amount_total,amount_received,amount_remaining,payment_invite_id,payment_expires_at,created_at,updated_at,paid_at"
+      "id,reference,profile_type,status,stripe_checkout_session_id,stripe_payment_intent_id,stripe_customer_id,environment,livemode,is_internal_test,excluded_from_kpis,payment_option,total_amount,deposit_amount,balance_amount,amount_paid,amount_due,deposit_status,balance_status,full_name,email,phone,currency,payment_method,amount_subtotal,amount_tax,amount_total,amount_received,amount_remaining,payment_invite_id,payment_expires_at,created_at,updated_at,paid_at"
     )
     .order("created_at", { ascending: false });
   let invitesQuery = supabase

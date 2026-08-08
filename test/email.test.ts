@@ -54,4 +54,42 @@ describe("sendResendEmail", () => {
       reason: "missing_email_id"
     });
   });
+
+  it("envía confirmación de anticipo con link público de saldo", async () => {
+    resendMocks.send.mockResolvedValue({ data: { id: "email_deposit" }, error: null });
+    process.env.NEXT_PUBLIC_SITE_URL = "https://pagos.pilula.com.mx";
+    process.env.EMAIL_FROM = "PILULA <pagos@pilula.com.mx>";
+    process.env.EMAIL_REPLY_TO = "info@pilula.com.mx";
+    const { sendDepositConfirmationEmail } = await import("@/lib/email");
+
+    const result = await sendDepositConfirmationEmail(
+      {
+        id: "order_1",
+        reference: "PILULA-HTW-TEST",
+        profile_type: "doctor",
+        status: "partial",
+        email: "buyer@example.com",
+        currency: "usd",
+        amount_subtotal: 600000,
+        amount_tax: 96000,
+        amount_total: 696000,
+        amount_received: 348000,
+        amount_remaining: 348000,
+        deposit_amount: 348000,
+        balance_amount: 348000,
+        terms_version: "test"
+      },
+      "https://pagos.pilula.com.mx/pagar-saldo/public_token_123"
+    );
+
+    expect(result).toEqual({ sent: true, emailId: "email_deposit" });
+    expect(resendMocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "buyer@example.com",
+        subject: "Anticipo confirmado · Hair Transplant Workshop 2026",
+        html: expect.stringContaining("https://pagos.pilula.com.mx/pagar-saldo/public_token_123"),
+        text: expect.stringContaining("https://pagos.pilula.com.mx/pagar-saldo/public_token_123")
+      })
+    );
+  });
 });

@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { EVENT, type PaymentMethod, type PlanKey } from "@/config/checkout";
 import { getEnv, getStripeEnvironment } from "@/lib/env";
+import { getCheckoutChargeAmounts } from "@/lib/order-financials";
 import { getStripe } from "@/lib/stripe/client";
 import type { OrderRecord } from "@/lib/orders";
 import type { PaymentInvite } from "@/lib/payment-invites";
@@ -50,10 +51,19 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
     cancellation_policy_version: invite.cancellation_policy_version,
     payment_currency: invite.payment_currency,
     payment_method: paymentMethod,
+    payment_option: invite.payment_option || "full",
+    contract_amount_subtotal: String(invite.amount_subtotal),
+    contract_amount_tax: String(invite.amount_tax),
+    contract_amount_total: String(invite.amount_total),
     environment: stripeEnvironment,
     livemode: String(stripeEnvironment === "live")
   };
-  const usePriceData = invite.payment_currency === "mxn" || !invite.stripe_price_id;
+  const usePriceData = (invite.payment_option || "full") === "deposit" || invite.payment_currency === "mxn" || !invite.stripe_price_id;
+  const chargeAmounts = getCheckoutChargeAmounts(invite.payment_option || "full", {
+    amount_subtotal: invite.amount_subtotal,
+    amount_tax: invite.amount_tax,
+    amount_total: invite.amount_total
+  });
 
   const sessionParams: Stripe.Checkout.SessionCreateParams = {
     mode: "payment",
@@ -62,7 +72,7 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
         ? {
             price_data: {
               currency: invite.payment_currency,
-              unit_amount: invite.amount_subtotal,
+              unit_amount: chargeAmounts.amount_subtotal,
               product_data: {
                 name: `HTW 2026 · ${plan === "doctor" ? "Médico participante" : "Paciente seleccionado"}`,
                 metadata

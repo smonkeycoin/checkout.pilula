@@ -30,22 +30,22 @@ describe("Payment Link fallback orders", () => {
     expect(resolvePaymentLinkOrder({ payment_link: "plink_1U1xKiGkqXZguX59hWdHVbuV" } as never)).toMatchObject({
       participantType: "doctor",
       paymentOption: "full",
-      totalAmount: 696000
+      amounts: { amount_total: 696000 }
     });
     expect(resolvePaymentLinkOrder({ payment_link: "plink_1U1xKjGkqXZguX59fsVHAQTM" } as never)).toMatchObject({
       participantType: "doctor",
       paymentOption: "deposit",
-      paidAmount: 348000
+      amounts: { amount_total: 696000 }
     });
     expect(resolvePaymentLinkOrder({ payment_link: "plink_1U1xKkGkqXZguX597exX33tg" } as never)).toMatchObject({
       participantType: "patient",
       paymentOption: "full",
-      totalAmount: 92800
+      amounts: { amount_total: 92800 }
     });
     expect(resolvePaymentLinkOrder({ payment_link: "plink_1U1xKkGkqXZguX59VQ66yTAt" } as never)).toMatchObject({
       participantType: "patient",
       paymentOption: "deposit",
-      paidAmount: 46400
+      amounts: { amount_total: 92800 }
     });
   });
 
@@ -77,8 +77,11 @@ describe("Payment Link fallback orders", () => {
       status: "partial",
       payment_option: "deposit",
       amount_total: 696000,
+      total_amount: 696000,
       deposit_amount: 348000,
       balance_amount: 348000,
+      amount_paid: 348000,
+      amount_due: 348000,
       amount_received: 348000,
       amount_remaining: 348000,
       deposit_status: "paid",

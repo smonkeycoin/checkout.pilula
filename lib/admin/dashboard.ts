@@ -30,6 +30,9 @@ export type DashboardOrderRow = {
   amount_subtotal: number | null;
   amount_tax: number | null;
   amount_total: number | null;
+  total_amount?: number | null;
+  amount_paid?: number | null;
+  amount_due?: number | null;
   amount_received: number | null;
   amount_remaining: number | null;
   payment_invite_id: string | null;

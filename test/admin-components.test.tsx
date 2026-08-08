@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   adminFetch: vi.fn(),
@@ -99,6 +99,43 @@ function dashboardPayload() {
   };
 }
 
+function invitePayload(overrides: Record<string, unknown> = {}) {
+  return {
+    invite: {
+      id: "invite_123",
+      full_name: "Dra Test",
+      email: "yoanna@example.com",
+      profile_type: "patient",
+      payment_option: "full",
+      amount_total: 1716800,
+      currency: "mxn",
+      ...overrides
+    },
+    url: "https://pagos.pilula.com.mx/pagar/token_123",
+    email: { requested: false, sent: false }
+  };
+}
+
+function mockInviteRequests(postResponses: Response[] = []) {
+  const posts = [...postResponses];
+  mocks.adminFetch.mockImplementation(async (_input: string, init?: { method?: string }) => {
+    if (init?.method === "POST") {
+      return posts.shift() || new Response(JSON.stringify(invitePayload()), { status: 200 });
+    }
+    return new Response(JSON.stringify({ invites: [] }), { status: 200 });
+  });
+}
+
+function postCalls() {
+  return mocks.adminFetch.mock.calls.filter(([, init]) => (init as { method?: string } | undefined)?.method === "POST");
+}
+
+beforeEach(() => {
+  mocks.adminFetch.mockReset();
+  mocks.push.mockReset();
+  mocks.replace.mockReset();
+});
+
 describe("admin components", () => {
   it("dashboard carga con sesión", async () => {
     mocks.adminFetch.mockResolvedValueOnce(new Response(JSON.stringify(dashboardPayload()), { status: 200 }));
@@ -138,5 +175,131 @@ describe("admin components", () => {
 
     await waitFor(() => expect(screen.getByText("PILULA-HTW-20260803-EE5750")).toBeInTheDocument());
     expect(mocks.adminFetch).toHaveBeenCalledWith("/api/admin/payments");
+  });
+
+  it("muestra validación visible y no bloquea por required invisible", async () => {
+    mockInviteRequests();
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+    fireEvent.click(screen.getByRole("button", { name: "Crear invitación" }));
+
+    expect(await screen.findByText("Captura el nombre.")).toBeInTheDocument();
+    expect(screen.getByText("Captura un correo válido.")).toBeInTheDocument();
+    expect(screen.queryByText("Tipo de cambio requerido")).not.toBeInTheDocument();
+    expect(mocks.adminFetch).not.toHaveBeenCalledWith("/api/admin/invites", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("crea invitación de pago completo desde submit", async () => {
+    mockInviteRequests([new Response(JSON.stringify(invitePayload()), { status: 200 })]);
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+    fireEvent.change(screen.getByLabelText("Participante"), { target: { value: "patient" } });
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Dra Test" } });
+    fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "yoanna@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crear invitación" }));
+
+    await waitFor(() => expect(screen.getByText("Invitación creada.")).toBeInTheDocument());
+    expect(screen.getAllByText("Pago completo").length).toBeGreaterThan(0);
+    expect(postCalls()).toHaveLength(1);
+    expect(postCalls()[0]).toEqual([
+      "/api/admin/invites",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.objectContaining({ paymentOption: "full", fullName: "Dra Test", email: "yoanna@example.com" })
+      })
+    ]);
+  });
+
+  it("crea invitación de anticipo 50%", async () => {
+    mockInviteRequests([new Response(JSON.stringify(invitePayload({ payment_option: "deposit" })), { status: 200 })]);
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+    fireEvent.change(screen.getByLabelText("Modalidad"), { target: { value: "deposit" } });
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Dra Test" } });
+    fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "yoanna@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crear invitación" }));
+
+    await waitFor(() => expect(screen.getByText("Anticipo 50%")).toBeInTheDocument());
+    expect(postCalls()).toHaveLength(1);
+    expect(postCalls()[0]).toEqual([
+      "/api/admin/invites",
+      expect.objectContaining({ body: expect.objectContaining({ paymentOption: "deposit" }) })
+    ]);
+  });
+
+  it("muestra error de API y marca tipo de cambio", async () => {
+    mockInviteRequests([
+      new Response(JSON.stringify({ error: "Falta la tasa MXN para crear la invitación.", code: "INVITE_MXN_RATE_MISSING" }), { status: 400 })
+    ]);
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Dra Test" } });
+    fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "yoanna@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crear invitación" }));
+
+    expect(await screen.findAllByText("Falta la tasa MXN para crear la invitación.")).toHaveLength(2);
+  });
+
+  it("conserva link cuando Resend falla", async () => {
+    mockInviteRequests([
+        new Response(
+          JSON.stringify({
+            ...invitePayload(),
+            email: { requested: true, sent: false, reason: "resend_error" }
+          }),
+          { status: 200 }
+        )
+    ]);
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Dra Test" } });
+    fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "yoanna@example.com" } });
+    fireEvent.click(screen.getByLabelText("Enviar email con Resend"));
+    fireEvent.click(screen.getByRole("button", { name: "Crear invitación" }));
+
+    expect(await screen.findByText("Invitación creada, pero el correo no pudo enviarse.")).toBeInTheDocument();
+    expect(screen.getByText("https://pagos.pilula.com.mx/pagar/token_123")).toBeInTheDocument();
+  });
+
+  it("evita double tap mientras está creando", async () => {
+    let resolvePost: (response: Response) => void = () => undefined;
+    mocks.adminFetch.mockImplementation(async (_input: string, init?: { method?: string }) => {
+      if (init?.method === "POST") return new Promise<Response>((resolve) => { resolvePost = resolve; });
+      return new Response(JSON.stringify({ invites: [] }), { status: 200 });
+    });
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Dra Test" } });
+    fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "yoanna@example.com" } });
+    const button = screen.getByRole("button", { name: "Crear invitación" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(await screen.findByRole("button", { name: "Creando invitación..." })).toBeDisabled();
+    expect(postCalls()).toHaveLength(1);
+    resolvePost(new Response(JSON.stringify(invitePayload()), { status: 200 }));
+    await waitFor(() => expect(screen.getByText("Invitación creada.")).toBeInTheDocument());
+  });
+
+  it("permite copiar link creado", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    mockInviteRequests([new Response(JSON.stringify(invitePayload()), { status: 200 })]);
+    const { InvitationsAdmin } = await import("@/app/admin/AdminClient");
+
+    render(<InvitationsAdmin />);
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Dra Test" } });
+    fireEvent.change(screen.getByLabelText("Correo"), { target: { value: "yoanna@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Crear invitación" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Copiar link" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://pagos.pilula.com.mx/pagar/token_123"));
+    expect(screen.getByText("Link copiado")).toBeInTheDocument();
   });
 });

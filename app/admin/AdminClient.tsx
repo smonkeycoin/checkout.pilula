@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, FileText, LayoutDashboard, LogOut, RefreshCw, Settings, Ticket, Wallet } from "lucide-react";
 import { formatMoney, type PaymentCurrency } from "@/config/checkout";
 import { AdminAuthError, adminFetch, downloadAdminCsv } from "@/lib/admin-api-client";
@@ -715,12 +715,16 @@ function compactAmount(value: number) {
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Sin fecha";
-  return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(new Date(value));
+  return new Intl.DateTimeFormat("es-MX", { dateStyle: "long", timeZone: "America/Mexico_City" }).format(new Date(value));
 }
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Sin datos";
-  return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "America/Mexico_City"
+  }).format(new Date(value));
 }
 
 export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
@@ -782,12 +786,29 @@ export function AdminLogin({ errorMessage }: { errorMessage?: string }) {
 export function InvitationsAdmin() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([]);
+  const [created, setCreated] = useState<{
+    url: string;
+    fullName: string;
+    email: string;
+    profileType: string;
+    paymentOption: string;
+    amountTotal?: number;
+    currency?: string;
+    emailRequested: boolean;
+    emailSent: boolean;
+  } | null>(null);
   const [createdUrl, setCreatedUrl] = useState("");
+  const [message, setMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const firstInvalidRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   const [form, setForm] = useState({
     profileType: "doctor",
     market: "mexico",
     paymentCurrency: "mxn",
     allowedPaymentMethods: "card_and_bank_transfer",
+    paymentOption: "full",
     exchangeRate: "",
     fullName: "",
     email: "",
@@ -810,56 +831,240 @@ export function InvitationsAdmin() {
     void load();
   }, [load]);
 
+  function updateForm(next: Partial<typeof form>) {
+    setForm((current) => ({ ...current, ...next }));
+    setMessage("");
+    setFieldErrors({});
+  }
+
+  function validateInviteForm() {
+    firstInvalidRef.current = null;
+    const errors: Record<string, string> = {};
+    if (!form.fullName.trim()) errors.fullName = "Captura el nombre.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "Captura un correo válido.";
+    if (!form.expiresAt || Number.isNaN(new Date(form.expiresAt).getTime())) {
+      errors.expiresAt = "Selecciona una fecha de vencimiento válida.";
+    }
+    if (form.paymentCurrency === "usd" && form.allowedPaymentMethods !== "card") {
+      errors.allowedPaymentMethods = "USD solo permite tarjeta.";
+    }
+    if (form.paymentCurrency === "mxn" && form.exchangeRate.trim() && !/^\d+(\.\d{1,6})?$/.test(form.exchangeRate.trim())) {
+      errors.exchangeRate = "Usa un tipo de cambio válido, por ejemplo 18.50.";
+    }
+
+    setFieldErrors(errors);
+    const first = Object.keys(errors)[0];
+    if (first) {
+      requestAnimationFrame(() => {
+        firstInvalidRef.current?.focus();
+        firstInvalidRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      });
+      return false;
+    }
+    return true;
+  }
+
   async function create(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await adminFetch("/api/admin/invites", {
-      method: "POST",
-      body: { ...form, expiresAt: new Date(form.expiresAt).toISOString() }
-    });
-    if (response.ok) {
-      const payload = (await response.json()) as { url: string };
+    if (isSubmitting) return;
+    setMessage("");
+    setCopied(false);
+    if (!validateInviteForm()) {
+      setMessage("Revisa los campos marcados antes de crear la invitación.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await adminFetch("/api/admin/invites", {
+        method: "POST",
+        body: {
+          ...form,
+          fullName: form.fullName.trim(),
+          email: form.email.trim(),
+          whatsapp: form.whatsapp.trim(),
+          exchangeRate: form.paymentCurrency === "mxn" ? form.exchangeRate.trim() : "",
+          expiresAt: new Date(form.expiresAt).toISOString()
+        }
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        code?: string;
+        url?: string;
+        invite?: Row;
+        email?: { requested: boolean; sent: boolean; reason?: string };
+      };
+      if (!response.ok || !payload.url) {
+        const nextMessage = payload.error || "No se pudo crear la invitación.";
+        setMessage(nextMessage);
+        if (payload.code === "INVITE_MXN_RATE_MISSING") setFieldErrors({ exchangeRate: nextMessage });
+        return;
+      }
+      const invite = payload.invite || {};
       setCreatedUrl(payload.url);
+      setCreated({
+        url: payload.url,
+        fullName: String(invite.full_name || form.fullName.trim()),
+        email: String(invite.email || form.email.trim()),
+        profileType: String(invite.profile_type || form.profileType),
+        paymentOption: String(invite.payment_option || form.paymentOption),
+        amountTotal: typeof invite.amount_total === "number" ? invite.amount_total : undefined,
+        currency: typeof invite.currency === "string" ? invite.currency : form.paymentCurrency,
+        emailRequested: Boolean(payload.email?.requested),
+        emailSent: Boolean(payload.email?.sent)
+      });
+      setMessage(payload.email?.requested && !payload.email.sent
+        ? "Invitación creada, pero el correo no pudo enviarse."
+        : "Invitación creada.");
       await load();
+    } catch (err) {
+      if (err instanceof AdminAuthError && err.code === "NO_SESSION") {
+        router.replace("/admin/login");
+        return;
+      }
+      setMessage(err instanceof Error ? err.message : "No se pudo crear la invitación.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
+  function copyCreatedLink() {
+    const url = created?.url || createdUrl;
+    if (!url) return;
+    void navigator.clipboard.writeText(url).then(() => setCopied(true));
+  }
+
+  function fieldRef(field: string) {
+    return (element: HTMLInputElement | HTMLSelectElement | null) => {
+      if (element && fieldErrors[field] && !firstInvalidRef.current) firstInvalidRef.current = element;
+    };
+  }
+
+  function changeCurrency(value: string) {
+    updateForm({
+      paymentCurrency: value,
+      allowedPaymentMethods: value === "usd" ? "card" : form.allowedPaymentMethods
+    });
+  }
+
   return (
-    <div className="space-y-8">
-      <form onSubmit={create} className="grid gap-4 border border-pilula-gold/25 p-5 md:grid-cols-2">
-        <select className="min-h-11 bg-pilula-black px-3" value={form.profileType} onChange={(event) => setForm({ ...form, profileType: event.target.value })}>
-          <option value="doctor">Doctor</option>
-          <option value="patient">Paciente</option>
-        </select>
-        <select className="min-h-11 bg-pilula-black px-3" value={form.market} onChange={(event) => setForm({ ...form, market: event.target.value })}>
-          <option value="mexico">México</option>
-          <option value="international">Internacional</option>
-        </select>
-        <select className="min-h-11 bg-pilula-black px-3" value={form.paymentCurrency} onChange={(event) => setForm({ ...form, paymentCurrency: event.target.value })}>
-          <option value="mxn">MXN</option>
-          <option value="usd">USD</option>
-        </select>
-        <select className="min-h-11 bg-pilula-black px-3" value={form.allowedPaymentMethods} onChange={(event) => setForm({ ...form, allowedPaymentMethods: event.target.value })}>
-          <option value="card">Solo tarjeta</option>
-          <option value="bank_transfer">Solo SPEI</option>
-          <option value="card_and_bank_transfer">Tarjeta y SPEI</option>
-        </select>
-        <input className="min-h-11 bg-pilula-black px-3" placeholder="Tipo de cambio MXN por USD" value={form.exchangeRate} onChange={(event) => setForm({ ...form, exchangeRate: event.target.value })} />
-        <input className="min-h-11 bg-pilula-black px-3" placeholder="Nombre" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
-        <input className="min-h-11 bg-pilula-black px-3" placeholder="Correo" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-        <input className="min-h-11 bg-pilula-black px-3" placeholder="WhatsApp" value={form.whatsapp} onChange={(event) => setForm({ ...form, whatsapp: event.target.value })} />
-        <input className="min-h-11 bg-pilula-black px-3" type="datetime-local" value={form.expiresAt} onChange={(event) => setForm({ ...form, expiresAt: event.target.value })} />
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.approved} onChange={(event) => setForm({ ...form, approved: event.target.checked })} /> Aprobar</label>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.sendEmail} onChange={(event) => setForm({ ...form, sendEmail: event.target.checked })} /> Enviar email con Resend</label>
-        <button className="min-h-11 bg-pilula-burgundy px-5 text-sm font-semibold text-white">Crear invitación</button>
+    <div className="space-y-8 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+      <form onSubmit={create} noValidate className="grid gap-3 border border-pilula-gold/25 p-4 sm:p-5 md:grid-cols-2">
+        <InviteField label="Participante" error={fieldErrors.profileType}>
+          <select ref={fieldRef("profileType")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" value={form.profileType} onChange={(event) => updateForm({ profileType: event.target.value })}>
+            <option value="doctor">Doctor</option>
+            <option value="patient">Paciente</option>
+          </select>
+        </InviteField>
+        <InviteField label="País / mercado" error={fieldErrors.market}>
+          <select ref={fieldRef("market")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" value={form.market} onChange={(event) => updateForm({ market: event.target.value })}>
+            <option value="mexico">México</option>
+            <option value="international">Internacional</option>
+          </select>
+        </InviteField>
+        <InviteField label="Moneda" error={fieldErrors.paymentCurrency}>
+          <select ref={fieldRef("paymentCurrency")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" value={form.paymentCurrency} onChange={(event) => changeCurrency(event.target.value)}>
+            <option value="mxn">MXN</option>
+            <option value="usd">USD</option>
+          </select>
+        </InviteField>
+        <InviteField label="Método permitido" error={fieldErrors.allowedPaymentMethods}>
+          <select ref={fieldRef("allowedPaymentMethods")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" value={form.allowedPaymentMethods} onChange={(event) => updateForm({ allowedPaymentMethods: event.target.value })}>
+            <option value="card">Solo tarjeta</option>
+            {form.paymentCurrency === "mxn" ? <option value="bank_transfer">Solo SPEI</option> : null}
+            {form.paymentCurrency === "mxn" ? <option value="card_and_bank_transfer">Tarjeta y SPEI</option> : null}
+          </select>
+        </InviteField>
+        <InviteField label="Modalidad" error={fieldErrors.paymentOption}>
+          <select ref={fieldRef("paymentOption")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" value={form.paymentOption} onChange={(event) => updateForm({ paymentOption: event.target.value })}>
+            <option value="full">Pago completo</option>
+            <option value="deposit">Aparta con 50%</option>
+          </select>
+        </InviteField>
+        <InviteField label="Tipo de cambio MXN por USD" hint={form.paymentCurrency === "mxn" ? "Opcional si ya existe una tasa activa en servidor." : "No aplica para USD."} error={fieldErrors.exchangeRate}>
+          <input ref={fieldRef("exchangeRate")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory disabled:opacity-50" inputMode="decimal" disabled={form.paymentCurrency !== "mxn"} value={form.exchangeRate} onChange={(event) => updateForm({ exchangeRate: event.target.value })} />
+        </InviteField>
+        <InviteField label="Nombre" error={fieldErrors.fullName}>
+          <input ref={fieldRef("fullName")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" value={form.fullName} onChange={(event) => updateForm({ fullName: event.target.value })} />
+        </InviteField>
+        <InviteField label="Correo" error={fieldErrors.email}>
+          <input ref={fieldRef("email")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" type="email" inputMode="email" value={form.email} onChange={(event) => updateForm({ email: event.target.value })} />
+        </InviteField>
+        <InviteField label="WhatsApp" error={fieldErrors.whatsapp}>
+          <input ref={fieldRef("whatsapp")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" inputMode="tel" value={form.whatsapp} onChange={(event) => updateForm({ whatsapp: event.target.value })} />
+        </InviteField>
+        <InviteField label="Fecha de vencimiento" error={fieldErrors.expiresAt}>
+          <input ref={fieldRef("expiresAt")} className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory" type="datetime-local" value={form.expiresAt} onChange={(event) => updateForm({ expiresAt: event.target.value })} />
+        </InviteField>
+        <label className="flex min-h-12 items-center gap-3 border border-pilula-gold/10 bg-pilula-black/40 px-3 text-sm">
+          <input className="h-5 w-5" type="checkbox" checked={form.approved} onChange={(event) => updateForm({ approved: event.target.checked })} /> Aprobar
+        </label>
+        <label className="flex min-h-12 items-center gap-3 border border-pilula-gold/10 bg-pilula-black/40 px-3 text-sm">
+          <input className="h-5 w-5" type="checkbox" checked={form.sendEmail} onChange={(event) => updateForm({ sendEmail: event.target.checked })} /> Enviar email con Resend
+        </label>
+        {message ? (
+          <div className={`md:col-span-2 border p-3 text-sm ${message.includes("creada") ? "border-pilula-gold/35 bg-pilula-gold/10" : "border-pilula-burgundy/60 bg-pilula-burgundy/15"}`} role="status">
+            {message}
+          </div>
+        ) : null}
+        <button
+          className="relative z-10 min-h-12 w-full touch-manipulation bg-pilula-burgundy px-5 text-sm font-semibold text-white disabled:opacity-60 md:col-span-2"
+          type="submit"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? "Creando invitación..." : "Crear invitación"}
+        </button>
       </form>
-      {createdUrl ? (
+      {created || createdUrl ? (
         <div className="border border-pilula-gold/25 p-4 text-sm">
-          <p>Enlace generado:</p>
-          <p className="break-all text-pilula-gold">{createdUrl}</p>
-          <button className="mt-3 border border-pilula-gold/30 px-3 py-2" onClick={() => navigator.clipboard.writeText(createdUrl)}>Copiar enlace</button>
+          <p className="text-base font-semibold">Invitación creada</p>
+          {created ? (
+            <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+              <InviteResult label="Nombre" value={created.fullName} />
+              <InviteResult label="Email" value={created.email} />
+              <InviteResult label="Tipo" value={created.profileType === "doctor" ? "Médico" : "Paciente"} />
+              <InviteResult label="Modalidad" value={created.paymentOption === "deposit" ? "Anticipo 50%" : "Pago completo"} />
+              <InviteResult label="Monto" value={created.amountTotal && created.currency ? money(created.amountTotal, created.currency) : "Calculado en servidor"} />
+              <InviteResult label="Email" value={created.emailRequested ? created.emailSent ? "Correo enviado ✓" : "No enviado" : "No solicitado"} />
+            </dl>
+          ) : null}
+          <p className="mt-3 break-all text-pilula-gold">{created?.url || createdUrl}</p>
+          <button className="mt-3 min-h-12 w-full touch-manipulation border border-pilula-gold/30 px-3 py-2 text-sm font-semibold sm:w-auto" type="button" onClick={copyCreatedLink}>
+            {copied ? "Link copiado" : "Copiar link"}
+          </button>
         </div>
       ) : null}
       <InvitesTable rows={rows} onRefresh={load} onCreatedUrl={setCreatedUrl} />
+    </div>
+  );
+}
+
+function InviteField({
+  children,
+  error,
+  hint,
+  label
+}: {
+  children: React.ReactNode;
+  error?: string;
+  hint?: string;
+  label: string;
+}) {
+  return (
+    <label className="grid gap-1 text-sm text-pilula-ivory/75">
+      <span>{label}</span>
+      {children}
+      {hint ? <span className="text-xs text-pilula-ivory/50">{hint}</span> : null}
+      {error ? <span className="text-xs text-pilula-burgundy">{error}</span> : null}
+    </label>
+  );
+}
+
+function InviteResult({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-[0.14em] text-pilula-gold/75">{label}</dt>
+      <dd className="mt-1 text-pilula-ivory">{value}</dd>
     </div>
   );
 }
@@ -883,7 +1088,7 @@ function InvitesTable({ rows, onRefresh, onCreatedUrl }: { rows: Row[]; onRefres
     <div className="overflow-x-auto border border-pilula-gold/20">
       <table className="w-full min-w-[980px] text-left text-sm">
         <thead className="bg-pilula-charcoal text-pilula-gold">
-          <tr><th className="px-3 py-2">nombre</th><th className="px-3 py-2">email</th><th className="px-3 py-2">perfil</th><th className="px-3 py-2">status</th><th className="px-3 py-2">expira</th><th className="px-3 py-2">acciones</th></tr>
+          <tr><th className="px-3 py-2">nombre</th><th className="px-3 py-2">email</th><th className="px-3 py-2">perfil</th><th className="px-3 py-2">pago</th><th className="px-3 py-2">status</th><th className="px-3 py-2">expira</th><th className="px-3 py-2">acciones</th></tr>
         </thead>
         <tbody>
           {rows.map((row) => (
@@ -891,6 +1096,7 @@ function InvitesTable({ rows, onRefresh, onCreatedUrl }: { rows: Row[]; onRefres
               <td className="px-3 py-2">{String(row.full_name || "")}</td>
               <td className="px-3 py-2">{String(row.email || "")}</td>
               <td className="px-3 py-2">{String(row.profile_type || "")}</td>
+              <td className="px-3 py-2">{String(row.payment_option || "full") === "deposit" ? "50%" : "Completo"}</td>
               <td className="px-3 py-2">{String(row.status || "")}</td>
               <td className="px-3 py-2">{String(row.expires_at || "")}</td>
               <td className="flex flex-wrap gap-2 px-3 py-2">

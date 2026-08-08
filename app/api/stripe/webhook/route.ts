@@ -78,7 +78,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventId
   const result = await markOrderPaid(hydrated, eventId);
   if (result.updated) {
     const order = await getOrderBySession(hydrated.id);
-    if (order?.status === "paid") await sendPaymentEmails(order);
+    if (order?.payment_option === "deposit" && result.publicToken) {
+      const siteUrl = getEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
+      await sendDepositConfirmationEmail(order, `${siteUrl}/pagar-saldo/${result.publicToken}`);
+    } else if (order?.status === "paid") {
+      await sendPaymentEmails(order);
+    }
     return;
   }
 
