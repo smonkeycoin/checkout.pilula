@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canCheckoutInvite, validateCheckoutPayload } from "@/lib/checkout-guard";
 import { EnvConfigurationError, assertPaymentRuntimeReady, getEnv, isPlaceholder } from "@/lib/env";
 import { sendBankTransferInstructionsEmail } from "@/lib/email";
-import { createOrderFromInvite, getReusableCheckoutOrder, markOrderCheckoutOpen } from "@/lib/orders";
+import { OrderSupabaseError, createOrderFromInvite, getReusableCheckoutOrder, markOrderCheckoutOpen } from "@/lib/orders";
 import { isInviteOtpVerified } from "@/lib/payment-invite-otp";
 import { getPaymentInviteByToken } from "@/lib/payment-invites";
 import { getClientIp, validateOrigin } from "@/lib/security/origin";
@@ -143,10 +143,10 @@ export async function POST(request: NextRequest) {
       console.error("[stripe_checkout]", {
         type: error.type,
         code: error.code,
-        message: includeDetails ? error.message : undefined,
+        message: error.message,
         rawType: error.rawType || error.raw?.type,
         requestId: error.requestId || error.raw?.requestId,
-        stack: includeDetails ? error.stack : undefined,
+        stack: error.stack,
         ...context
       });
 
@@ -160,6 +160,19 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
+    } else if (error instanceof OrderSupabaseError) {
+      console.error("[stripe_checkout]", {
+        type: error.name,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        operation: error.operation,
+        rawType: undefined,
+        requestId: undefined,
+        stack: error.stack,
+        ...context
+      });
     } else {
       console.error("[stripe_checkout]", {
         type: error instanceof Error ? error.name : typeof error,

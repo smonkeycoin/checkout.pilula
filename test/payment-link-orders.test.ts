@@ -116,4 +116,112 @@ describe("Payment Link fallback orders", () => {
     expect(result).toMatchObject({ created: false, reason: "order_exists", order: existing });
     expect(insert).not.toHaveBeenCalled();
   });
+
+  it("crea una orden desde invitación privada sin exigir stripe_price_id en pilula_orders", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_test");
+    insertSingle.mockImplementation(async () => ({ data: insertedRows.at(-1), error: null }));
+    const { createOrderFromInvite } = await import("@/lib/orders");
+
+    await createOrderFromInvite({
+      paymentMethod: "card",
+      userAgent: "vitest",
+      invite: {
+        id: "invite_private",
+        token_hash: "hash",
+        profile_type: "patient",
+        status: "approved",
+        market: "mexico",
+        full_name: "Paciente",
+        email: "paciente@example.com",
+        whatsapp: "+525500000000",
+        payment_currency: "mxn",
+        currency: "mxn",
+        allowed_payment_methods: "card",
+        recommended_payment_method: "card",
+        payment_option: "full",
+        stripe_price_id: "price_unused_for_order_insert",
+        exchange_rate_mxn_per_usd: "18.500000",
+        exchange_rate_source: "vitest",
+        exchange_rate_locked_at: "2026-08-07T12:00:00.000Z",
+        base_amount_subtotal_usd: 80000,
+        base_amount_tax_usd: 12800,
+        base_amount_total_usd: 92800,
+        amount_subtotal: 14800,
+        amount_tax: 2368,
+        amount_total: 17168,
+        amount_received: 0,
+        amount_remaining: 17168,
+        expires_at: "2026-08-14T12:00:00.000Z",
+        approved_at: "2026-08-07T12:00:00.000Z",
+        opened_at: null,
+        used_at: null,
+        revoked_at: null,
+        terms_version: "2026-01",
+        terms_hash: "hash",
+        cancellation_policy_version: "2026-01"
+      }
+    });
+
+    expect(insertedRows.at(-1)).not.toHaveProperty("stripe_price_id");
+  });
+
+  it("propaga errores Supabase de orden con código diagnosticable", async () => {
+    insertSingle.mockImplementation(async () => ({
+      data: null,
+      error: {
+        code: "PGRST204",
+        message: "Could not find the column",
+        details: null,
+        hint: null
+      }
+    }));
+    const { OrderSupabaseError, createOrderFromInvite } = await import("@/lib/orders");
+
+    await expect(
+      createOrderFromInvite({
+        paymentMethod: "card",
+        userAgent: "vitest",
+        invite: {
+          id: "invite_private",
+          token_hash: "hash",
+          profile_type: "patient",
+          status: "approved",
+          market: "mexico",
+          full_name: "Paciente",
+          email: "paciente@example.com",
+          whatsapp: null,
+          payment_currency: "mxn",
+          currency: "mxn",
+          allowed_payment_methods: "card",
+          recommended_payment_method: "card",
+          payment_option: "full",
+          stripe_price_id: null,
+          exchange_rate_mxn_per_usd: "18.500000",
+          exchange_rate_source: "vitest",
+          exchange_rate_locked_at: "2026-08-07T12:00:00.000Z",
+          base_amount_subtotal_usd: 80000,
+          base_amount_tax_usd: 12800,
+          base_amount_total_usd: 92800,
+          amount_subtotal: 14800,
+          amount_tax: 2368,
+          amount_total: 17168,
+          amount_received: 0,
+          amount_remaining: 17168,
+          expires_at: "2026-08-14T12:00:00.000Z",
+          approved_at: "2026-08-07T12:00:00.000Z",
+          opened_at: null,
+          used_at: null,
+          revoked_at: null,
+          terms_version: "2026-01",
+          terms_hash: "hash",
+          cancellation_policy_version: "2026-01"
+        }
+      })
+    ).rejects.toMatchObject({
+      name: "OrderSupabaseError",
+      code: "PGRST204",
+      operation: "create_order_from_invite"
+    });
+    expect(OrderSupabaseError).toBeTruthy();
+  });
 });

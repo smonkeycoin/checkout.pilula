@@ -74,6 +74,29 @@ export type OrderRecord = {
   public_token_hash?: string | null;
 };
 
+type SupabaseErrorLike = {
+  code?: string;
+  message?: string;
+  details?: string | null;
+  hint?: string | null;
+};
+
+export class OrderSupabaseError extends Error {
+  readonly code?: string;
+  readonly details?: string | null;
+  readonly hint?: string | null;
+  readonly operation: string;
+
+  constructor(operation: string, error: SupabaseErrorLike) {
+    super(error.message || "Supabase order operation failed");
+    this.name = "OrderSupabaseError";
+    this.operation = operation;
+    this.code = error.code;
+    this.details = error.details;
+    this.hint = error.hint;
+  }
+}
+
 const LIVE_PAYMENT_LINKS: Record<string, PaymentLinkResolution> = {
   plink_1U1xKiGkqXZguX59hWdHVbuV: {
     participantType: "doctor",
@@ -151,7 +174,6 @@ export async function createOrderFromInvite(input: {
     reference: createOrderReference(),
     profile_type: input.invite.profile_type,
     status: "created",
-    stripe_price_id: input.invite.stripe_price_id,
     environment: stripeEnvironment,
     livemode: stripeEnvironment === "live",
     full_name: input.invite.full_name,
@@ -186,7 +208,7 @@ export async function createOrderFromInvite(input: {
   }
 
   const { data, error } = await supabase.from("pilula_orders").insert(order).select("*").single();
-  if (error) throw new Error("No se pudo crear la orden");
+  if (error) throw new OrderSupabaseError("create_order_from_invite", error);
   return data as OrderRecord;
 }
 
@@ -394,7 +416,7 @@ export async function createOrderFromPaymentLinkSession(session: Stripe.Checkout
     const duplicate = await getOrderBySession(session.id);
     return { order: duplicate, publicToken: null, created: false, reason: "duplicate_session" };
   }
-  if (error) throw new Error("No se pudo crear la orden desde Payment Link");
+  if (error) throw new OrderSupabaseError("create_order_from_payment_link", error);
   return { order: data as OrderRecord, publicToken, created: true };
 }
 
