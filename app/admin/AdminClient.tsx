@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowRight, FileText, LayoutDashboard, LogOut, RefreshCw, Settings, Ticket, Wallet } from "lucide-react";
+import { BrandLogo } from "@/components/BrandLogo";
 import { formatMoney, type PaymentCurrency } from "@/config/checkout";
 import { AdminAuthError, adminFetch, downloadAdminCsv } from "@/lib/admin-api-client";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -114,7 +115,7 @@ export function AdminNav() {
   return (
     <nav className="grid gap-4 text-sm text-pilula-ivory/75 lg:sticky lg:top-6">
       <div className="border border-pilula-gold/20 bg-pilula-charcoal p-4">
-        <p className="text-base font-semibold text-pilula-ivory">PILULA MedPlanner</p>
+        <BrandLogo className="w-[136px] sm:w-[156px]" />
         <p className="mt-1 text-xs uppercase tracking-[0.18em] text-pilula-gold">Panel administrativo</p>
       </div>
       <div className="flex gap-2 overflow-x-auto lg:grid lg:overflow-visible">

@@ -141,6 +141,7 @@ describe("AdminShell navigation", () => {
 
     render(<AdminNav />);
 
+    expect(screen.getByRole("img", { name: "PILULA MedPlanner" })).toBeInTheDocument();
     const pagos = screen.getByRole("link", { name: "Pagos" });
     expect(pagos.className).toContain("text-pilula-gold");
   });

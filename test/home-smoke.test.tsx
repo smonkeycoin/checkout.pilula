@@ -10,5 +10,7 @@ describe("home", () => {
     expect(screen.getByRole("link", { name: /solicitar lugar como médico/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /solicitar valoración como paciente/i })).toBeInTheDocument();
     expect(screen.getByText(/paciente seleccionado/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: "PILULA MedPlanner" }).length).toBeGreaterThan(0);
+    expect(screen.queryByText("PI")).not.toBeInTheDocument();
   });
 });
