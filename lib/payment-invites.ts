@@ -55,6 +55,8 @@ export type PaymentInvite = {
   opened_at: string | null;
   used_at: string | null;
   revoked_at: string | null;
+  is_internal_test?: boolean | null;
+  excluded_from_kpis?: boolean | null;
   terms_version: string;
   terms_hash: string;
   cancellation_policy_version: string;
@@ -208,6 +210,8 @@ export async function createPaymentInvite(input: {
   expiresAt?: Date;
   approved?: boolean;
   createdBy?: string;
+  internalTest?: boolean;
+  excludedFromKpis?: boolean;
 }) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase no esta configurado");
@@ -218,6 +222,8 @@ export async function createPaymentInvite(input: {
   const expiresAt =
     input.expiresAt || new Date(Date.now() + env.PATIENT_INVITE_TTL_HOURS * 60 * 60 * 1000);
   const defaults = await buildInviteDefaults(input);
+  const isInternalTest = Boolean(input.internalTest);
+  const excludedFromKpis = isInternalTest || Boolean(input.excludedFromKpis);
 
   const data = await insertInviteWithSchemaFallback({
       id: crypto.randomUUID(),
@@ -230,10 +236,15 @@ export async function createPaymentInvite(input: {
       ...defaults,
       environment: stripeEnvironment,
       livemode: stripeEnvironment === "live",
+      is_internal_test: isInternalTest,
+      excluded_from_kpis: excludedFromKpis,
+      excluded_from_kpis_at: excludedFromKpis ? new Date().toISOString() : null,
+      excluded_from_kpis_reason: excludedFromKpis ? "internal_test" : null,
       expires_at: expiresAt.toISOString(),
       approved_at: input.approved ? new Date().toISOString() : null,
       metadata: {
         created_by: input.createdBy || "system",
+        internal_test: isInternalTest,
         fx_rate_locked: defaults.fx_rate_locked,
         fx_locked_at: defaults.fx_locked_at,
         base_currency: defaults.base_currency,

@@ -170,7 +170,13 @@ export function buildDashboardData(input: DashboardInput) {
   const paidMxn = paidOrders.filter((order) => order.currency === "mxn");
   const paidUsd = paidOrders.filter((order) => order.currency === "usd");
   const paidInviteIds = new Set(paidOrders.map((order) => order.payment_invite_id).filter(Boolean));
-  const verifiedOtpInviteIds = new Set(input.otps.filter((otp) => otp.verified_at).map((otp) => otp.invite_id).filter(Boolean));
+  const commercialInviteIds = new Set(commercialInvites.map((invite) => invite.id));
+  const verifiedOtpInviteIds = new Set(
+    input.otps
+      .filter((otp) => otp.verified_at && otp.invite_id && commercialInviteIds.has(otp.invite_id))
+      .map((otp) => otp.invite_id)
+      .filter(Boolean)
+  );
 
   const totalMxn = paidMxn.reduce((sum, order) => sum + cents(order.amount_received || order.amount_total), 0);
   const totalUsd = paidUsd.reduce((sum, order) => sum + cents(order.amount_received || order.amount_total), 0);
@@ -253,7 +259,7 @@ export function buildDashboardData(input: DashboardInput) {
     ...commercialInvites.map((invite) => makeActivity("invite_created", "payment_invite", invite.id, "Invitación creada", invite.created_at)),
     ...commercialInvites.filter((invite) => invite.opened_at).map((invite) => makeActivity("invite_opened", "payment_invite", invite.id, "Invitación abierta", invite.opened_at)),
     ...commercialInvites.filter((invite) => invite.revoked_at).map((invite) => makeActivity("invite_revoked", "payment_invite", invite.id, "Invitación revocada", invite.revoked_at)),
-    ...input.otps.filter((otp) => otp.verified_at && otp.invite_id && commercialInvites.some((invite) => invite.id === otp.invite_id)).map((otp) => makeActivity("otp_verified", "payment_invite", String(otp.invite_id), "OTP verificado", otp.verified_at)),
+    ...input.otps.filter((otp) => otp.verified_at && otp.invite_id && commercialInviteIds.has(otp.invite_id)).map((otp) => makeActivity("otp_verified", "payment_invite", String(otp.invite_id), "OTP verificado", otp.verified_at)),
     ...commercialOrders.map((order) => makeActivity("checkout_started", "order", order.id, `Checkout iniciado ${order.reference || ""}`.trim(), order.created_at)),
     ...paidOrders.map((order) => makeActivity("payment_confirmed", "order", order.id, `Pago confirmado ${order.reference || ""}`.trim(), order.paid_at || order.updated_at)),
     ...input.invoices.map((invoice) => makeActivity("invoice_requested", "invoice_request", invoice.id, "Solicitud de factura", invoice.created_at))

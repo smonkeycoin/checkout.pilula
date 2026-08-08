@@ -27,6 +27,10 @@ export type OrderRecord = {
   stripe_event_id?: string | null;
   environment?: StripeEnvironment | null;
   livemode?: boolean | null;
+  is_internal_test?: boolean | null;
+  excluded_from_kpis?: boolean | null;
+  excluded_from_kpis_at?: string | null;
+  excluded_from_kpis_reason?: string | null;
   full_name?: string | null;
   email?: string | null;
   phone?: string | null;
@@ -200,6 +204,8 @@ export async function createOrderFromInvite(input: {
     status: "created",
     environment: stripeEnvironment,
     livemode: stripeEnvironment === "live",
+    is_internal_test: Boolean(input.invite.is_internal_test),
+    excluded_from_kpis: Boolean(input.invite.excluded_from_kpis || input.invite.is_internal_test),
     full_name: input.invite.full_name,
     email: input.invite.email,
     phone: input.invite.whatsapp,

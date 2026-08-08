@@ -23,7 +23,8 @@ const createSchema = z.object({
   whatsapp: z.string().max(40).optional(),
   expiresAt: z.string().datetime(),
   approved: z.boolean().default(true),
-  sendEmail: z.boolean().default(false)
+  sendEmail: z.boolean().default(false),
+  internalTest: z.boolean().optional().default(false)
 });
 
 function validationErrorMessage(issues: z.ZodIssue[]) {
@@ -41,7 +42,15 @@ export async function GET(request: NextRequest) {
 
   const supabase = getSupabaseAdmin();
   if (!supabase) return NextResponse.json({ invites: [] });
-  const { data, error } = await supabase.from("payment_invites").select("*").order("created_at", { ascending: false });
+  const showInternal = request.nextUrl.searchParams.get("showInternal") === "true";
+  let query = supabase.from("payment_invites").select("*").order("created_at", { ascending: false });
+  if (!showInternal) {
+    query = query.eq("excluded_from_kpis", false).eq("is_internal_test", false);
+  }
+  const { data, error } = await query;
+  if (error && (error.code === "42703" || String(error.message || "").includes("column"))) {
+    return NextResponse.json({ invites: [] });
+  }
   if (error) return NextResponse.json({ error: "No se pudieron cargar invitaciones" }, { status: 500 });
   return NextResponse.json({ invites: data });
 }
@@ -74,6 +83,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const internalHeader = request.headers.get("x-pilula-internal-test") === "true";
+    const internalTest = Boolean(parsed.data.internalTest || internalHeader);
     const { invite, token } = await createPaymentInvite({
       profileType: parsed.data.profileType,
       market: parsed.data.market,
@@ -87,7 +98,9 @@ export async function POST(request: NextRequest) {
       whatsapp: parsed.data.whatsapp,
       expiresAt,
       approved: parsed.data.approved,
-      createdBy: admin.email
+      createdBy: admin.email,
+      internalTest,
+      excludedFromKpis: internalTest
     });
     const url = buildPaymentInviteUrl(token);
     let emailStatus:

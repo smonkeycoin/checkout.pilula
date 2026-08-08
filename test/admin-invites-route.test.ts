@@ -34,6 +34,14 @@ function request(body: Record<string, unknown>) {
   });
 }
 
+function internalRequest(body: Record<string, unknown>) {
+  return new NextRequest("http://localhost:3000/api/admin/invites", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json", "x-pilula-internal-test": "true" }
+  });
+}
+
 function validBody(overrides: Record<string, unknown> = {}) {
   return {
     profileType: "patient",
@@ -77,6 +85,20 @@ describe("POST /api/admin/invites", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.createPaymentInvite).toHaveBeenCalledWith(expect.objectContaining({ paymentOption: "deposit" }));
+  });
+
+  it("permite marcar futuras pruebas internas explícitamente", async () => {
+    const { POST } = await import("@/app/api/admin/invites/route");
+
+    const response = await POST(internalRequest(validBody({ internalTest: true })));
+
+    expect(response.status).toBe(200);
+    expect(mocks.createPaymentInvite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        internalTest: true,
+        excludedFromKpis: true
+      })
+    );
   });
 
   it("devuelve 400 con mensaje útil ante validación", async () => {

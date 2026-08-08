@@ -114,7 +114,25 @@ describe("admin dashboard metrics", () => {
             opened_at: "2026-08-01T12:10:00.000Z",
             expires_at: "2026-08-10T12:00:00.000Z",
             revoked_at: null
+          },
+          {
+            id: "invite-revoked-test",
+            profile_type: "patient",
+            status: "revoked",
+            environment: "live",
+            livemode: true,
+            is_internal_test: true,
+            excluded_from_kpis: true,
+            created_at: "2026-08-01T12:00:00.000Z",
+            approved_at: "2026-08-01T12:05:00.000Z",
+            opened_at: "2026-08-01T12:10:00.000Z",
+            expires_at: "2026-08-02T12:00:00.000Z",
+            revoked_at: "2026-08-01T12:20:00.000Z"
           }
+        ],
+        otps: [
+          { invite_id: "invite-internal", verified_at: "2026-08-01T12:12:00.000Z", created_at: "2026-08-01T12:11:00.000Z" },
+          { invite_id: "invite-revoked-test", verified_at: "2026-08-01T12:13:00.000Z", created_at: "2026-08-01T12:12:00.000Z" }
         ]
       })
     );
@@ -124,6 +142,13 @@ describe("admin dashboard metrics", () => {
     expect(data.summary.cashUsd).toBe(0);
     expect(data.summary.orderCount).toBe(0);
     expect(data.funnel.created).toBe(0);
+    expect(data.funnel.approved).toBe(0);
+    expect(data.funnel.opened).toBe(0);
+    expect(data.funnel.otpVerified).toBe(0);
+    expect(data.funnel.checkoutStarted).toBe(0);
+    expect(data.funnel.paid).toBe(0);
+    expect(data.funnel.expired).toBe(0);
+    expect(data.funnel.revoked).toBe(0);
     expect(data.recentPayments).toEqual([]);
   });
 
