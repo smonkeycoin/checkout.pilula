@@ -48,3 +48,29 @@ export function calculateInviteAmounts(plan: PlanKey, currency: PaymentCurrency,
 export function calculateFixedMxnAmounts(plan: PlanKey, rate = DEFAULT_MXN_FX_RATE) {
   return calculateMxnAmounts(plan, rate);
 }
+
+export function normalizeDiscountPercent(value?: number | string | null) {
+  if (value === undefined || value === null || value === "") return 0;
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(numeric) || numeric < 0 || numeric > 99) {
+    throw new Error("El descuento debe ser un entero entre 0 y 99.");
+  }
+  return numeric;
+}
+
+export function applyPercentDiscount<T extends { amount_subtotal: number; amount_tax: number; amount_total: number }>(
+  amounts: T,
+  discountPercent?: number | string | null
+) {
+  const percent = normalizeDiscountPercent(discountPercent);
+  if (percent === 0) return amounts;
+  const multiplier = 100 - percent;
+  const amount_subtotal = Math.round((amounts.amount_subtotal * multiplier) / 100);
+  const amount_tax = Math.round((amounts.amount_tax * multiplier) / 100);
+  return {
+    ...amounts,
+    amount_subtotal,
+    amount_tax,
+    amount_total: amount_subtotal + amount_tax
+  };
+}

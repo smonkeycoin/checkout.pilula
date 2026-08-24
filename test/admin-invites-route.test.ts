@@ -69,6 +69,7 @@ beforeEach(() => {
       email: "yoanna@example.com",
       profile_type: "patient",
       payment_option: "deposit",
+      discount_percent: 15,
       amount_total: 1716800,
       currency: "mxn"
     },
@@ -85,6 +86,15 @@ describe("POST /api/admin/invites", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.createPaymentInvite).toHaveBeenCalledWith(expect.objectContaining({ paymentOption: "deposit" }));
+  });
+
+  it("recibe discountPercent validado server-side", async () => {
+    const { POST } = await import("@/app/api/admin/invites/route");
+
+    const response = await POST(request(validBody({ discountPercent: 15 })));
+
+    expect(response.status).toBe(200);
+    expect(mocks.createPaymentInvite).toHaveBeenCalledWith(expect.objectContaining({ discountPercent: 15 }));
   });
 
   it("permite marcar futuras pruebas internas explícitamente", async () => {
@@ -109,6 +119,20 @@ describe("POST /api/admin/invites", () => {
 
     expect(response.status).toBe(400);
     expect(payload).toEqual({ error: "Captura un correo válido.", code: "INVITE_VALIDATION_FAILED" });
+  });
+
+  it("rechaza descuentos menores a 0 o mayores a 99", async () => {
+    const { POST } = await import("@/app/api/admin/invites/route");
+
+    const negative = await POST(request(validBody({ discountPercent: -1 })));
+    const tooHigh = await POST(request(validBody({ discountPercent: 150 })));
+
+    expect(negative.status).toBe(400);
+    expect(await negative.json()).toEqual({
+      error: "El descuento debe ser un porcentaje entero entre 0 y 99.",
+      code: "INVITE_VALIDATION_FAILED"
+    });
+    expect(tooHigh.status).toBe(400);
   });
 
   it("crea invitación aunque Resend falle", async () => {

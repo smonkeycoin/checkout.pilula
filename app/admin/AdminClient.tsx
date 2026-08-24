@@ -782,6 +782,7 @@ export function InvitationsAdmin() {
     email: string;
     profileType: string;
     paymentOption: string;
+    discountPercent: number;
     amountTotal?: number;
     currency?: string;
     emailRequested: boolean;
@@ -799,6 +800,7 @@ export function InvitationsAdmin() {
     paymentCurrency: "mxn",
     allowedPaymentMethods: "card_and_bank_transfer",
     paymentOption: "full",
+    discountPercent: "0",
     exchangeRate: "",
     fullName: "",
     email: "",
@@ -837,6 +839,10 @@ export function InvitationsAdmin() {
     }
     if (form.paymentCurrency === "usd" && form.allowedPaymentMethods !== "card") {
       errors.allowedPaymentMethods = "USD solo permite tarjeta.";
+    }
+    const discountPercent = Number(form.discountPercent);
+    if (!Number.isInteger(discountPercent) || discountPercent < 0 || discountPercent > 99) {
+      errors.discountPercent = "Usa un entero de 0 a 99.";
     }
     setFieldErrors(errors);
     const first = Object.keys(errors)[0];
@@ -893,6 +899,7 @@ export function InvitationsAdmin() {
         email: String(invite.email || form.email.trim()),
         profileType: String(invite.profile_type || form.profileType),
         paymentOption: String(invite.payment_option || form.paymentOption),
+        discountPercent: Number(invite.discount_percent || form.discountPercent || 0),
         amountTotal: typeof invite.amount_total === "number" ? invite.amount_total : undefined,
         currency: typeof invite.currency === "string" ? invite.currency : form.paymentCurrency,
         emailRequested: Boolean(payload.email?.requested),
@@ -966,6 +973,19 @@ export function InvitationsAdmin() {
             <option value="deposit">Aparta con 50%</option>
           </select>
         </InviteField>
+        <InviteField label="Descuento (%)" error={fieldErrors.discountPercent} hint="0 equivale a sin descuento. Máximo 99%.">
+          <input
+            ref={fieldRef("discountPercent")}
+            className="min-h-12 w-full border border-pilula-gold/20 bg-pilula-black px-3 text-base text-pilula-ivory"
+            inputMode="numeric"
+            min={0}
+            max={99}
+            step={1}
+            type="number"
+            value={form.discountPercent}
+            onChange={(event) => updateForm({ discountPercent: event.target.value })}
+          />
+        </InviteField>
         <div className="border border-pilula-gold/10 bg-pilula-black/40 p-3 text-sm text-pilula-ivory/70">
           <p className="text-pilula-ivory">Tipo de cambio MXN</p>
           <p>Se toma del valor administrado en Configuración de precios y queda congelado al crear la invitación.</p>
@@ -1010,6 +1030,7 @@ export function InvitationsAdmin() {
               <InviteResult label="Email" value={created.email} />
               <InviteResult label="Tipo" value={created.profileType === "doctor" ? "Médico" : "Paciente"} />
               <InviteResult label="Modalidad" value={created.paymentOption === "deposit" ? "Anticipo 50%" : "Pago completo"} />
+              <InviteResult label="Descuento" value={created.discountPercent > 0 ? `${created.discountPercent}%` : "Sin descuento"} />
               <InviteResult label="Monto" value={created.amountTotal && created.currency ? money(created.amountTotal, created.currency) : "Calculado en servidor"} />
               <InviteResult label="Email" value={created.emailRequested ? created.emailSent ? "Correo enviado ✓" : "No enviado" : "No solicitado"} />
             </dl>
@@ -1074,7 +1095,7 @@ function InvitesTable({ rows, onRefresh, onCreatedUrl }: { rows: Row[]; onRefres
     <div className="overflow-x-auto border border-pilula-gold/20">
       <table className="w-full min-w-[980px] text-left text-sm">
         <thead className="bg-pilula-charcoal text-pilula-gold">
-          <tr><th className="px-3 py-2">nombre</th><th className="px-3 py-2">email</th><th className="px-3 py-2">perfil</th><th className="px-3 py-2">pago</th><th className="px-3 py-2">status</th><th className="px-3 py-2">expira</th><th className="px-3 py-2">acciones</th></tr>
+          <tr><th className="px-3 py-2">nombre</th><th className="px-3 py-2">email</th><th className="px-3 py-2">perfil</th><th className="px-3 py-2">pago</th><th className="px-3 py-2">descuento</th><th className="px-3 py-2">status</th><th className="px-3 py-2">expira</th><th className="px-3 py-2">acciones</th></tr>
         </thead>
         <tbody>
           {rows.map((row) => (
@@ -1083,6 +1104,7 @@ function InvitesTable({ rows, onRefresh, onCreatedUrl }: { rows: Row[]; onRefres
               <td className="px-3 py-2">{String(row.email || "")}</td>
               <td className="px-3 py-2">{String(row.profile_type || "")}</td>
               <td className="px-3 py-2">{String(row.payment_option || "full") === "deposit" ? "50%" : "Completo"}</td>
+              <td className="px-3 py-2">{Number(row.discount_percent || 0) > 0 ? `${Number(row.discount_percent)}%` : "Sin descuento"}</td>
               <td className="px-3 py-2">{String(row.status || "")}</td>
               <td className="px-3 py-2">{formatShortDateTime(typeof row.expires_at === "string" ? row.expires_at : null)}</td>
               <td className="flex flex-wrap gap-2 px-3 py-2">

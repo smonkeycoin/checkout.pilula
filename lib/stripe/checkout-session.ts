@@ -34,11 +34,56 @@ async function ensureStripeCustomer(invite: PaymentInvite) {
   return customer.id;
 }
 
+async function getOrCreateInviteDiscountCoupon(discountPercent: number) {
+  const stripe = getStripe();
+  const couponId = `pilula_invite_discount_${discountPercent}`;
+  try {
+    const coupon = await stripe.coupons.retrieve(couponId);
+    if (!coupon.deleted && coupon.percent_off === discountPercent) return coupon.id;
+  } catch (error) {
+    const stripeError = error as { code?: string; statusCode?: number };
+    if (stripeError.code !== "resource_missing" && stripeError.statusCode !== 404) throw error;
+  }
+
+  try {
+    const coupon = await stripe.coupons.create(
+      {
+        id: couponId,
+        name: `PILULA invitación ${discountPercent}%`,
+        percent_off: discountPercent,
+        duration: "once",
+        metadata: {
+          source: "payment_invites",
+          discount_percent: String(discountPercent)
+        }
+      },
+      {
+        idempotencyKey: `coupon:${couponId}`
+      }
+    );
+    return coupon.id;
+  } catch (error) {
+    const stripeError = error as { code?: string };
+    if (stripeError.code !== "resource_already_exists") throw error;
+    const coupon = await stripe.coupons.retrieve(couponId);
+    if (coupon.deleted || coupon.percent_off !== discountPercent) {
+      throw new Error("INVITE_DISCOUNT_COUPON_INVALID");
+    }
+    return coupon.id;
+  }
+}
+
 export async function createCheckoutSession({ plan, order, invite, paymentMethod }: CreateCheckoutSessionInput) {
   const env = getEnv();
   const stripe = getStripe();
   const stripeEnvironment = getStripeEnvironment(env.STRIPE_SECRET_KEY) || "test";
   const siteUrl = env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
+  const discountPercent = Number(invite.discount_percent || 0);
+  const originalAmounts = {
+    amount_subtotal: invite.amount_original_subtotal || invite.amount_subtotal,
+    amount_tax: invite.amount_original_tax || invite.amount_tax,
+    amount_total: invite.amount_original_total || invite.amount_total
+  };
   const metadata = {
     event: EVENT.eventMetadata,
     edition: EVENT.editionMetadata,
@@ -55,6 +100,11 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
     contract_amount_subtotal: String(invite.amount_subtotal),
     contract_amount_tax: String(invite.amount_tax),
     contract_amount_total: String(invite.amount_total),
+    discount_percent: String(discountPercent),
+    original_amount_subtotal: String(originalAmounts.amount_subtotal),
+    original_amount_tax: String(originalAmounts.amount_tax),
+    original_amount_total: String(originalAmounts.amount_total),
+    discount_amount_total: String(invite.discount_amount_total || 0),
     environment: stripeEnvironment,
     livemode: String(stripeEnvironment === "live")
   };
@@ -63,11 +113,12 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
   if (useMxnFixedPrice && !invite.stripe_price_id) {
     throw new Error("MXN_PRICE_ID_MISSING");
   }
-  const chargeAmounts = getCheckoutChargeAmounts(invite.payment_option || "full", {
+  const pricingAmounts = discountPercent > 0 ? originalAmounts : {
     amount_subtotal: invite.amount_subtotal,
     amount_tax: invite.amount_tax,
     amount_total: invite.amount_total
-  });
+  };
+  const chargeAmounts = getCheckoutChargeAmounts(invite.payment_option || "full", pricingAmounts);
   const lineItem: Stripe.Checkout.SessionCreateParams.LineItem =
     usePriceData
       ? {
@@ -112,6 +163,10 @@ export async function createCheckoutSession({ plan, order, invite, paymentMethod
       metadata
     }
   };
+
+  if (discountPercent > 0) {
+    sessionParams.discounts = [{ coupon: await getOrCreateInviteDiscountCoupon(discountPercent) }];
+  }
 
   if (paymentMethod === "card") {
     sessionParams.customer_creation = "always";

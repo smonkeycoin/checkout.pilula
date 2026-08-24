@@ -54,6 +54,13 @@ export type OrderRecord = {
   base_currency?: string | null;
   charge_currency?: string | null;
   total_amount_mxn?: number | null;
+  discount_percent?: number | string | null;
+  amount_original_subtotal?: number | null;
+  amount_original_tax?: number | null;
+  amount_original_total?: number | null;
+  discount_amount_subtotal?: number | null;
+  discount_amount_tax?: number | null;
+  discount_amount_total?: number | null;
   payment_expires_at?: string | null;
   invoice_requested?: boolean;
   terms_version: string;
@@ -214,6 +221,13 @@ export async function createOrderFromInvite(input: {
     amount_subtotal: input.invite.amount_subtotal,
     amount_tax: input.invite.amount_tax,
     amount_total: input.invite.amount_total,
+    discount_percent: input.invite.discount_percent || 0,
+    amount_original_subtotal: input.invite.amount_original_subtotal || input.invite.amount_subtotal,
+    amount_original_tax: input.invite.amount_original_tax || input.invite.amount_tax,
+    amount_original_total: input.invite.amount_original_total || input.invite.amount_total,
+    discount_amount_subtotal: input.invite.discount_amount_subtotal || 0,
+    discount_amount_tax: input.invite.discount_amount_tax || 0,
+    discount_amount_total: input.invite.discount_amount_total || 0,
     ...buildInitialOrderFinancials(input.invite.payment_option || "full", {
       amount_subtotal: input.invite.amount_subtotal,
       amount_tax: input.invite.amount_tax,

@@ -4,6 +4,7 @@ import { buildInitialOrderFinancials, buildPaidOrderFinancials, getCheckoutCharg
 type CapturedCheckoutParams = {
   line_items: Array<{ price_data?: { unit_amount: number }; price?: string; tax_rates?: string[] }>;
   metadata: Record<string, string>;
+  discounts?: Array<{ coupon: string }>;
   payment_method_types?: string[];
   customer?: string;
   customer_update?: { name?: string; address?: string };
@@ -231,6 +232,120 @@ describe("private invite checkout session", () => {
     });
     expect(capturedParams?.line_items[0].price_data).toBeUndefined();
     expect(capturedParams?.line_items[0].tax_rates).toBeUndefined();
+  });
+
+  it("aplica descuento de invitación con Coupon server-side sin cambiar Price ID MXN", async () => {
+    vi.resetModules();
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://pagos.pilula.com.mx");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_123");
+    vi.stubEnv("STRIPE_TAX_RATE_IVA_16", "txr_live");
+    vi.stubEnv("STRIPE_PRICE_DOCTOR", "price_doctor_usd");
+    vi.stubEnv("STRIPE_PRICE_PATIENT", "price_patient_usd");
+
+    let capturedParams: CapturedCheckoutParams | undefined;
+    const createSession = vi.fn(async (params) => {
+      capturedParams = params as CapturedCheckoutParams;
+      return { id: "cs_discount", url: "https://checkout.stripe.live" };
+    });
+    const retrieveCoupon = vi.fn(async () => {
+      const error = new Error("missing") as Error & { code?: string; statusCode?: number };
+      error.code = "resource_missing";
+      error.statusCode = 404;
+      throw error;
+    });
+    const createCoupon = vi.fn(async () => ({ id: "pilula_invite_discount_25", percent_off: 25 }));
+    vi.doMock("@/lib/stripe/client", () => ({
+      getStripe: () => ({
+        checkout: {
+          sessions: { create: createSession }
+        },
+        coupons: {
+          retrieve: retrieveCoupon,
+          create: createCoupon
+        }
+      })
+    }));
+    vi.doMock("@/lib/supabase/admin", () => ({ getSupabaseAdmin: () => null }));
+
+    const { createCheckoutSession } = await import("@/lib/stripe/checkout-session");
+    await createCheckoutSession({
+      plan: "patient",
+      order: {
+        id: "order_discount",
+        reference: "PILULA-HTW-DISCOUNT",
+        profile_type: "patient",
+        status: "created",
+        currency: "mxn",
+        amount_subtotal: 1050000,
+        amount_tax: 168000,
+        amount_total: 1218000,
+        terms_version: "test"
+      },
+      invite: {
+        id: "invite_discount",
+        token_hash: "hash",
+        profile_type: "patient",
+        status: "approved",
+        market: "mexico",
+        full_name: "Paciente",
+        email: "paciente@example.com",
+        whatsapp: null,
+        payment_currency: "mxn",
+        currency: "mxn",
+        allowed_payment_methods: "card",
+        recommended_payment_method: "card",
+        payment_option: "full",
+        stripe_price_id: "price_patient_mxn_full",
+        exchange_rate_mxn_per_usd: "17.50",
+        exchange_rate_source: "PILULA_MANAGED_FIXED",
+        exchange_rate_locked_at: "2026-08-07T12:00:00.000Z",
+        fx_rate_locked: "17.50",
+        fx_locked_at: "2026-08-07T12:00:00.000Z",
+        base_currency: "USD",
+        charge_currency: "mxn",
+        total_amount_mxn: 1218000,
+        base_amount_subtotal_usd: 80000,
+        base_amount_tax_usd: 12800,
+        base_amount_total_usd: 92800,
+        discount_percent: 25,
+        amount_original_subtotal: 1400000,
+        amount_original_tax: 224000,
+        amount_original_total: 1624000,
+        discount_amount_subtotal: 350000,
+        discount_amount_tax: 56000,
+        discount_amount_total: 406000,
+        amount_subtotal: 1050000,
+        amount_tax: 168000,
+        amount_total: 1218000,
+        amount_received: 0,
+        amount_remaining: 1218000,
+        expires_at: "2026-08-14T12:00:00.000Z",
+        approved_at: "2026-08-07T12:00:00.000Z",
+        opened_at: null,
+        used_at: null,
+        revoked_at: null,
+        terms_version: "2026-01",
+        terms_hash: "hash",
+        cancellation_policy_version: "2026-01"
+      },
+      paymentMethod: "card"
+    });
+
+    expect(createCoupon).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "pilula_invite_discount_25", percent_off: 25, duration: "once" }),
+      expect.objectContaining({ idempotencyKey: "coupon:pilula_invite_discount_25" })
+    );
+    expect(capturedParams?.line_items[0]).toMatchObject({
+      price: "price_patient_mxn_full",
+      quantity: 1
+    });
+    expect(capturedParams?.discounts).toEqual([{ coupon: "pilula_invite_discount_25" }]);
+    expect(capturedParams?.metadata).toMatchObject({
+      discount_percent: "25",
+      original_amount_total: "1624000",
+      discount_amount_total: "406000",
+      contract_amount_total: "1218000"
+    });
   });
 
   it("permite tax_id_collection con SPEI y cliente existente", async () => {

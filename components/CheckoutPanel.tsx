@@ -18,6 +18,9 @@ type Props = {
   amountSubtotal: number;
   amountTax: number;
   amountTotal: number;
+  amountOriginalTotal?: number | null;
+  discountPercent?: number | string | null;
+  discountAmountTotal?: number | null;
   allowedPaymentMethods: AllowedPaymentMethods;
   recommendedPaymentMethod: PaymentMethod;
   maskedEmail: string;
@@ -32,6 +35,9 @@ export function CheckoutPanel({
   amountSubtotal,
   amountTax,
   amountTotal,
+  amountOriginalTotal,
+  discountPercent,
+  discountAmountTotal,
   allowedPaymentMethods,
   recommendedPaymentMethod,
   maskedEmail,
@@ -129,6 +135,8 @@ export function CheckoutPanel({
   const canSpei = allowedPaymentMethods === "bank_transfer" || allowedPaymentMethods === "card_and_bank_transfer";
   const resendSeconds = resendAvailableAt ? Math.max(0, Math.ceil((resendAvailableAt - now) / 1000)) : 0;
   const paymentDisabled = !emailVerified || loadingPlan !== null;
+  const normalizedDiscount = Number(discountPercent || 0);
+  const hasDiscount = normalizedDiscount > 0;
 
   return (
     <section className="space-y-4" aria-label="Pago privado">
@@ -136,9 +144,18 @@ export function CheckoutPanel({
         <div className="space-y-4">
           <div>
             <p className="text-sm uppercase tracking-[0.18em] text-pilula-gold">{selected.displayTitle}</p>
+            {hasDiscount && amountOriginalTotal ? (
+              <p className="mt-4 text-sm text-pilula-ivory/60 line-through">{formatMoney(amountOriginalTotal, currency)}</p>
+            ) : null}
             <p className="mt-4 text-3xl font-semibold">{formatMoney(amountSubtotal, currency)}</p>
             <p className="text-sm text-pilula-ivory/65">+ IVA {formatMoney(amountTax, currency)}</p>
           </div>
+          {hasDiscount ? (
+            <div className="border border-pilula-gold/25 p-3 text-sm text-pilula-ivory/72">
+              <p>Descuento invitación: -{normalizedDiscount}%</p>
+              <p>Ahorro: {formatMoney(discountAmountTotal || 0, currency)}</p>
+            </div>
+          ) : null}
           <div className="border-t border-pilula-gold/15 pt-4">
             <p className="text-sm text-pilula-ivory/65">Total</p>
             <p className="text-2xl font-semibold">{formatMoney(amountTotal, currency)}</p>

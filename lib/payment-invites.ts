@@ -9,7 +9,7 @@ import {
 } from "@/config/checkout";
 import { CANCELLATION_POLICY_VERSION, TERMS_VERSION, termsHash } from "@/config/legal";
 import { getEnv, getStripeEnvironment, type StripeEnvironment } from "@/lib/env";
-import { calculateInviteAmounts } from "@/lib/money";
+import { applyPercentDiscount, calculateInviteAmounts, normalizeDiscountPercent } from "@/lib/money";
 import { canCheckoutInvite } from "@/lib/checkout-guard";
 import { PaymentInviteSupabaseError } from "@/lib/admin-invite-errors";
 import type { PaymentOption } from "@/lib/order-financials";
@@ -42,6 +42,13 @@ export type PaymentInvite = {
   base_currency?: string | null;
   charge_currency?: PaymentCurrency | null;
   total_amount_mxn?: number | null;
+  discount_percent?: number | string | null;
+  amount_original_subtotal?: number | null;
+  amount_original_tax?: number | null;
+  amount_original_total?: number | null;
+  discount_amount_subtotal?: number | null;
+  discount_amount_tax?: number | null;
+  discount_amount_total?: number | null;
   base_amount_subtotal_usd: number;
   base_amount_tax_usd: number;
   base_amount_total_usd: number;
@@ -113,6 +120,7 @@ export async function buildInviteDefaults(input: {
   paymentOption?: PaymentOption;
   exchangeRate?: string | null;
   exchangeRateSource?: string | null;
+  discountPercent?: number | string | null;
 }) {
   if (input.paymentCurrency === "usd" && input.allowedPaymentMethods !== "card") {
     throw new Error("USD solo permite tarjeta");
@@ -124,7 +132,9 @@ export async function buildInviteDefaults(input: {
   const activeRate = input.paymentCurrency === "mxn" ? await getActiveExchangeRate() : null;
   const rate = input.paymentCurrency === "mxn" ? String(activeRate?.rate || "") || null : null;
   const source = input.paymentCurrency === "mxn" ? activeRate?.source || "PILULA_MANAGED_FIXED" : null;
-  const amounts = calculateInviteAmounts(input.profileType, input.paymentCurrency, rate);
+  const originalAmounts = calculateInviteAmounts(input.profileType, input.paymentCurrency, rate);
+  const discountPercent = normalizeDiscountPercent(input.discountPercent);
+  const amounts = applyPercentDiscount(originalAmounts, discountPercent);
   const fxLockedAt = input.paymentCurrency === "mxn" ? new Date().toISOString() : null;
   const paymentOption = input.paymentOption || "full";
   const stripePriceId =
@@ -161,6 +171,13 @@ export async function buildInviteDefaults(input: {
     base_amount_subtotal_usd: plan.subtotal,
     base_amount_tax_usd: plan.tax,
     base_amount_total_usd: plan.total,
+    discount_percent: discountPercent,
+    amount_original_subtotal: originalAmounts.amount_subtotal,
+    amount_original_tax: originalAmounts.amount_tax,
+    amount_original_total: originalAmounts.amount_total,
+    discount_amount_subtotal: originalAmounts.amount_subtotal - amounts.amount_subtotal,
+    discount_amount_tax: originalAmounts.amount_tax - amounts.amount_tax,
+    discount_amount_total: originalAmounts.amount_total - amounts.amount_total,
     amount_subtotal: amounts.amount_subtotal,
     amount_tax: amounts.amount_tax,
     amount_total: amounts.amount_total,
@@ -212,6 +229,7 @@ export async function createPaymentInvite(input: {
   createdBy?: string;
   internalTest?: boolean;
   excludedFromKpis?: boolean;
+  discountPercent?: number | string | null;
 }) {
   const supabase = getSupabaseAdmin();
   if (!supabase) throw new Error("Supabase no esta configurado");
@@ -249,7 +267,8 @@ export async function createPaymentInvite(input: {
         fx_locked_at: defaults.fx_locked_at,
         base_currency: defaults.base_currency,
         charge_currency: defaults.charge_currency,
-        total_amount_mxn: defaults.total_amount_mxn
+        total_amount_mxn: defaults.total_amount_mxn,
+        discount_percent: defaults.discount_percent
       }
     })
   ;
@@ -275,6 +294,12 @@ export async function getPaymentInviteByToken(token: string, markOpened = false)
       .eq("id", invite.id)
       .eq("status", "approved");
     invite.status = "opened";
+    console.info("[INVITATION_ACCEPTED]", {
+      inviteId: invite.id,
+      profileType: invite.profile_type,
+      currency: invite.payment_currency,
+      livemode: Boolean(invite.livemode)
+    });
   }
 
   return { ok: true as const, invite, tokenHash };

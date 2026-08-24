@@ -13,6 +13,7 @@ const schema = z.object({
   paymentCurrency: z.enum(["usd", "mxn"]),
   allowedPaymentMethods: z.enum(["card", "bank_transfer", "card_and_bank_transfer"]),
   exchangeRate: z.string().optional(),
+  discountPercent: z.coerce.number().int().min(0).max(99).default(0),
   email: z.string().email(),
   fullName: z.string().optional(),
   whatsapp: z.string().optional(),
@@ -26,6 +27,7 @@ const parsed = schema.parse({
   paymentCurrency: arg("currency") || (arg("market") === "international" ? "usd" : "mxn"),
   allowedPaymentMethods: arg("methods") || (arg("currency") === "usd" ? "card" : "card_and_bank_transfer"),
   exchangeRate: arg("rate"),
+  discountPercent: arg("discount-percent") || arg("discount") || 0,
   email: arg("email"),
   fullName: arg("name"),
   whatsapp: arg("whatsapp"),
@@ -40,6 +42,7 @@ const { invite, token } = await createPaymentInvite({
   allowedPaymentMethods: parsed.allowedPaymentMethods,
   exchangeRate: parsed.exchangeRate,
   exchangeRateSource: parsed.exchangeRate ? "CLI" : undefined,
+  discountPercent: parsed.discountPercent,
   email: parsed.email,
   fullName: parsed.fullName,
   whatsapp: parsed.whatsapp,
@@ -52,6 +55,7 @@ console.log("URL privada de pago. Copiar ahora; el token no se volvera a mostrar
 console.log(buildPaymentInviteUrl(token));
 console.log(`Invitacion: ${invite.id}`);
 console.log(`Modalidad: ${invite.profile_type}`);
+console.log(`Descuento: ${Number(invite.discount_percent || 0)}%`);
 console.log(`Expira: ${invite.expires_at}`);
 if (!process.env.RESEND_API_KEY) {
   console.log("RESEND_API_KEY no esta configurado; no se envio correo automaticamente.");

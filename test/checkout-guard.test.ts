@@ -87,6 +87,18 @@ describe("checkout privado por invitacion", () => {
     ).toBe(false);
   });
 
+  it("rechaza descuento enviado por cliente", () => {
+    expect(
+      validateCheckoutPayload({
+        inviteToken: "a".repeat(24),
+        termsAccepted: true,
+        totalAccepted: true,
+        paymentMethod: "card",
+        discountPercent: 90
+      }).success
+    ).toBe(false);
+  });
+
   it("rechaza SPEI cuando la invitacion es USD", () => {
     expect(canCheckoutInvite(invite({ payment_currency: "usd", currency: "usd" }), "doctor", "bank_transfer")).toEqual({
       ok: false,

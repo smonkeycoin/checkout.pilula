@@ -28,6 +28,9 @@ export default async function PaymentInvitePage({ params }: Props) {
     isPlaceholder(env.STRIPE_TAX_RATE_IVA_16) ||
     (invite.invite.payment_currency === "usd" && isPlaceholder(invite.invite.stripe_price_id || ""))
   );
+  const discountPercent = Number(invite.invite.discount_percent || 0);
+  const hasDiscount = discountPercent > 0;
+  const originalTotal = invite.invite.amount_original_total || invite.invite.amount_total;
   const visibleName = displayName(invite.invite.full_name, invite.invite.email);
   const expiresAt = new Intl.DateTimeFormat("es-MX", {
     dateStyle: "medium",
@@ -57,6 +60,12 @@ export default async function PaymentInvitePage({ params }: Props) {
             <p className="text-sm text-pilula-ivory/65">Modalidad</p>
             <p className="mt-1 text-xl font-semibold">{plan.displayTitle}</p>
             <p className="mt-5 text-sm text-pilula-ivory/65">Total a pagar</p>
+            {hasDiscount ? (
+              <div className="mt-2 grid gap-1 text-sm text-pilula-ivory/65">
+                <p>Precio original: {formatMoney(originalTotal, invite.invite.payment_currency)}</p>
+                <p>Descuento invitación: -{discountPercent}% ({formatMoney(invite.invite.discount_amount_total || 0, invite.invite.payment_currency)})</p>
+              </div>
+            ) : null}
             <p className="mt-2 text-3xl font-semibold">{formatMoney(invite.invite.amount_total, invite.invite.payment_currency)}</p>
             <p className="mt-2 text-sm text-pilula-ivory/65">
               Subtotal {formatMoney(invite.invite.amount_subtotal, invite.invite.payment_currency)} + IVA{" "}
@@ -115,6 +124,9 @@ export default async function PaymentInvitePage({ params }: Props) {
             amountSubtotal={invite.invite.amount_subtotal}
             amountTax={invite.invite.amount_tax}
             amountTotal={invite.invite.amount_total}
+            amountOriginalTotal={invite.invite.amount_original_total}
+            discountPercent={invite.invite.discount_percent}
+            discountAmountTotal={invite.invite.discount_amount_total}
             allowedPaymentMethods={invite.invite.allowed_payment_methods}
             recommendedPaymentMethod={invite.invite.recommended_payment_method}
             maskedEmail={maskEmail(invite.invite.email)}

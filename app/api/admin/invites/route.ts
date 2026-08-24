@@ -17,6 +17,7 @@ const createSchema = z.object({
   paymentCurrency: z.enum(["usd", "mxn"]),
   allowedPaymentMethods: z.enum(["card", "bank_transfer", "card_and_bank_transfer"]),
   paymentOption: z.enum(["full", "deposit"]).default("full"),
+  discountPercent: z.coerce.number().int().min(0).max(99).default(0),
   exchangeRate: z.string().optional(),
   fullName: z.string().min(1).max(180),
   email: z.string().email(),
@@ -33,6 +34,7 @@ function validationErrorMessage(issues: z.ZodIssue[]) {
   if (paths.has("email")) return "Captura un correo válido.";
   if (paths.has("expiresAt")) return "La fecha de vencimiento no es válida.";
   if (paths.has("paymentOption")) return "Selecciona pago completo o anticipo 50%.";
+  if (paths.has("discountPercent")) return "El descuento debe ser un porcentaje entero entre 0 y 99.";
   return "Revisa los campos obligatorios de la invitación.";
 }
 
@@ -91,6 +93,7 @@ export async function POST(request: NextRequest) {
       paymentCurrency: parsed.data.paymentCurrency,
       allowedPaymentMethods: parsed.data.allowedPaymentMethods,
       paymentOption: parsed.data.paymentOption,
+      discountPercent: parsed.data.discountPercent,
       exchangeRate: parsed.data.exchangeRate,
       exchangeRateSource: parsed.data.exchangeRate ? "admin" : undefined,
       fullName: parsed.data.fullName,
@@ -103,6 +106,16 @@ export async function POST(request: NextRequest) {
       excludedFromKpis: internalTest
     });
     const url = buildPaymentInviteUrl(token);
+    console.info("[INVITATION_CREATED]", {
+      inviteId: invite.id,
+      profileType: invite.profile_type,
+      paymentOption: invite.payment_option || "full",
+      currency: invite.payment_currency,
+      discountPercent: Number(invite.discount_percent || 0),
+      status: invite.status,
+      livemode: Boolean(invite.livemode),
+      internalTest
+    });
     let emailStatus:
       | { requested: false; sent: false }
       | { requested: true; sent: true; emailId?: string }
